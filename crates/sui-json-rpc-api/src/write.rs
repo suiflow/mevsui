@@ -40,6 +40,19 @@ pub trait WriteApi {
         request_type: Option<ExecuteTransactionRequestType>,
     ) -> RpcResult<SuiTransactionBlockResponse>;
 
+
+    /// Execute the transaction bundle and wait for results if desired.
+    #[method(name = "executeTransactionBlockBundle")]
+    async fn execute_transaction_block_bundle(
+        &self,
+        /// BCS serialized transaction data bytes without its type tag, as base-64 encoded string.
+        tx_bytes: Vec<Base64>,
+        /// A list of signatures (`flag || signature || pubkey` bytes, as base-64 encoded string). Signature is committed to the intent message of the transaction data, as base-64 encoded string.
+        signatures: Vec<Vec<Base64>>,
+        /// options for specifying the content to be returned
+        options: Option<SuiTransactionBlockResponseOptions>,
+    ) -> RpcResult<Vec<SuiTransactionBlockResponse>>;
+
     /// Runs the transaction in dev-inspect mode. Which allows for nearly any
     /// transaction (or Move call) with any arguments. Detailed results are
     /// provided, including both the transaction effects and any return values.

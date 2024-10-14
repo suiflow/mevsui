@@ -1744,7 +1744,7 @@ where
             input_objects: None,
             output_objects: None,
             auxiliary_data: None,
-            request: request.clone(),
+            _request: request.clone(),
         };
 
         // create a set of validators that we should sample to request input/output objects from

@@ -401,6 +401,19 @@ impl WriteApiServer for TransactionExecutionApi {
     }
 
     #[instrument(skip(self))]
+    async fn execute_transaction_block_bundle(
+        &self,
+        tx_bytes: Vec<Base64>,
+        signatures: Vec<Vec<Base64>>,
+        opts: Option<SuiTransactionBlockResponseOptions>,
+    ) -> RpcResult<Vec<SuiTransactionBlockResponse>> {
+        with_tracing!(Duration::from_secs(10), async move {
+            self.execute_transaction_block_bundle(tx_bytes, signatures, opts)
+                .await
+        })
+    }
+
+    #[instrument(skip(self))]
     async fn dev_inspect_transaction_block(
         &self,
         sender_address: SuiAddress,
