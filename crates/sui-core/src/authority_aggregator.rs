@@ -1799,11 +1799,15 @@ where
                         }
                     };
 
-                    client
+                    let resp = client
                         .authority_client()
                         .handle_soft_bundle_certificates_v3(req, client_addr)
                         .instrument(trace_span!("handle_soft_bundle_certificates_v3", authority =? concise_name))
-                        .await
+                        .await;
+
+                    // println!("resp[soft_bundle]: {:?}", resp);
+
+                    resp
                 })
             },
             move |mut state, name, weight, response| {
@@ -2029,6 +2033,10 @@ where
     ) -> SuiResult<Option<Vec<QuorumDriverResponse>>> {
         match response {    
             Ok(HandleSoftBundleCertificatesResponseV3 { responses }) => {
+                if responses.len() != state._request.certificates.len() {
+                    return Ok(None);
+                }
+
                 let first_response = responses.first().unwrap().clone();
 
                 if first_response.events.is_some() && state.events.is_none() {

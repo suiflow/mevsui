@@ -6,8 +6,7 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 
 use sui_json_rpc_types::{
-    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiTransactionBlockResponse,
-    SuiTransactionBlockResponseOptions,
+    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiBundleResponse, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions
 };
 use sui_open_rpc_macros::open_rpc;
 use sui_types::base_types::SuiAddress;
@@ -51,7 +50,7 @@ pub trait WriteApi {
         signatures: Vec<Vec<Base64>>,
         /// options for specifying the content to be returned
         options: Option<SuiTransactionBlockResponseOptions>,
-    ) -> RpcResult<Vec<SuiTransactionBlockResponse>>;
+    ) -> RpcResult<SuiBundleResponse>;
 
     /// Runs the transaction in dev-inspect mode. Which allows for nearly any
     /// transaction (or Move call) with any arguments. Detailed results are

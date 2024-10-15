@@ -343,6 +343,7 @@ where
         let mut transactions = vec![];
 
         for tx in &request.transactions {
+            // println!("tx: {:?}", tx);
             transactions.push(
                 epoch_store
                     .verify_transaction(tx.clone())
@@ -352,6 +353,7 @@ where
         // let (_in_flight_metrics_guards, good_response_metrics) = self.update_metrics(&transaction);
         let bundle = ExecuteRequestV3::Bundle(request);
         let tx_digest = bundle.digest();
+        // println!("tx_digest: {:?}", tx_digest);
         // debug!(?tx_digest, "TO Received transaction execution request.");
 
         // let (_e2e_latency_timer, _txn_finality_timer) = if transaction.contains_shared_object() {
@@ -377,6 +379,8 @@ where
             // in_flight.dec();
         // });
 
+        // println!("submitting: {:?}", bundle);
+
         let ticket = self
             .submit(transactions, bundle, client_addr)
             .await
@@ -390,6 +394,7 @@ where
             // self.metrics.wait_for_finality_timeout.inc();
             return Err(QuorumDriverError::TimeoutBeforeFinality);
         };
+        // println!("quorum driver result: {:?}", result);
         // add_server_timing("wait_for_finality");
 
         // drop(_txn_finality_timer);
@@ -427,23 +432,26 @@ where
         client_addr: Option<SocketAddr>,
     ) -> SuiResult<impl Future<Output = SuiResult<Vec<QuorumDriverResult>>> + '_> {
         let tx_digest = request.digest();
+        println!("tx_digest[submit]: {:?}", tx_digest);
         let ticket = self.notifier.register_one(&tx_digest);
         // TODO(william) need to also write client adr to pending tx log below
         // so that we can re-execute with this client addr if we restart
-        let mut not_written = true;
-        for tx in &transaction {
-            not_written &= self
-                .pending_tx_log
-                .write_pending_transaction_maybe(&tx)
-                .await?;
-        }
-
+        let not_written = true;
+        // for tx in &transaction {
+        //     not_written &= self
+        //         .pending_tx_log
+        //         .write_pending_transaction_maybe(&tx)
+        //         .await?;
+        // }
+        // println!("not_written: {:?}", not_written);
 
         if not_written {
             debug!(?tx_digest, "no pending request in flight, submitting.");
+            // println!("submitting[1]: {:?}", request);
             self.quorum_driver()
                 .submit_transaction_no_ticket(request.clone(), client_addr)
                 .await?;
+            // println!("finalized[1]: {:?}", request);
         }
         // It's possible that the transaction effects is already stored in DB at this point.
         // So we also subscribe to that. If we hear from `effects_await` first, it means
@@ -452,19 +460,25 @@ where
         let cache_reader = self.validator_state.get_transaction_cache_reader().clone();
         let qd = self.clone_quorum_driver();
         Ok(async move {
-            let digests = [tx_digest];
+            let digests = transaction.iter().map(|tx| *tx.digest()).collect::<Vec<TransactionDigest>>();
+            // println!("digests[x]: {:?}", digests);
             let effects_await = cache_reader.notify_read_executed_effects(&digests);
             // let-and-return necessary to satisfy borrow checker.
+            // println!("effects_await");
             #[allow(clippy::let_and_return)]
             let res = match select(ticket, effects_await.boxed()).await {
-                Either::Left((quorum_driver_response, _)) => Ok(quorum_driver_response),
+                Either::Left((quorum_driver_response, _)) => {
+                    Ok(quorum_driver_response)
+                },
                 Either::Right((_, unfinished_quorum_driver_task)) => {
                     debug!(
                         ?tx_digest,
                         "Effects are available in DB, use quorum driver to get a certificate"
                     );
+                    // println!("submitting[2]: {:?}", request);
                     qd.submit_transaction_no_ticket(request, client_addr)
                         .await?;
+                    // println!("finalized[2]");
                     Ok(unfinished_quorum_driver_task.await)
                 }
             };

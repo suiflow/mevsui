@@ -9,6 +9,7 @@ use fastcrypto::encoding::Base64;
 use fastcrypto::traits::ToFromBytes;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::RpcModule;
+use sui_types::error::SuiError;
 
 use crate::authority_state::StateRead;
 use crate::error::{Error, SuiRpcInputError};
@@ -23,8 +24,7 @@ use sui_core::authority_client::NetworkAuthorityClient;
 use sui_core::transaction_orchestrator::TransactiondOrchestrator;
 use sui_json_rpc_api::{JsonRpcMetrics, WriteApiOpenRpc, WriteApiServer};
 use sui_json_rpc_types::{
-    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiTransactionBlock,
-    SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions,
+    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiBundleResponse, SuiTransactionBlock, SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions
 };
 use sui_open_rpc::Module;
 use sui_types::base_types::SuiAddress;
@@ -140,7 +140,7 @@ impl TransactionExecutionApi {
         tx_bytes: Vec<Base64>,
         signatures: Vec<Vec<Base64>>,
         opts: Option<SuiTransactionBlockResponseOptions>,
-    ) -> Result<Vec<SuiTransactionBlockResponse>, Error> {
+    ) -> Result<SuiBundleResponse, Error> {
         let mut inputs = vec![];
         // let (request, opts, sender, input_objs, txn, transaction, raw_transaction) =
         //     self.prepare_execute_transaction_block(tx_bytes, signatures, opts)?;
@@ -158,6 +158,8 @@ impl TransactionExecutionApi {
                 raw_transaction,
             ));
         }
+
+        // println!("inputs: {:?}", inputs);
         let (starting_req, _, _, _, _, _, _) = inputs.first().unwrap().clone();
         let bundle_request = ExecuteBundleRequestV3 {
             transactions: inputs.iter().map(|(request, _, _, _, _, _, _)| request.transaction.clone()).collect(),
@@ -177,25 +179,13 @@ impl TransactionExecutionApi {
         .map_err(Error::from)?;
         drop(orch_timer);
 
-        let mut responses = vec![];
-        for (
-            (_, opts, sender, input_objs, _, transaction, raw_transaction),
-            response
-        ) in inputs.into_iter().zip(response) {
-            let response = self.handle_post_orchestration(
-                response,
-                is_executed_locally,
-                opts,
-                digest,
-                input_objs,
-                transaction,
-                raw_transaction,
-                sender,
-            )
-            .await?;
-            responses.push(response);
-        }
-        Ok(responses)
+        // println!("response: {:?}", response);
+
+        
+        Ok(SuiBundleResponse {
+            digest: inputs.iter().map(|(request, _, _, _, _, _, _)| *request.transaction.digest()).collect(),
+            bundle_id: digest,
+        })
     }
 
     async fn execute_transaction_block(
@@ -205,6 +195,17 @@ impl TransactionExecutionApi {
         opts: Option<SuiTransactionBlockResponseOptions>,
         request_type: Option<ExecuteTransactionRequestType>,
     ) -> Result<SuiTransactionBlockResponse, Error> {
+
+        // println!("request_type: {:?}", request_type);
+        // println!("opts: {:?}", opts);   
+        // println!("tx_bytes: {:?}", tx_bytes);
+        // println!("signatures: {:?}", signatures);
+        // return Err(Error::from(SuiError::UserInputError { error: 
+        //     sui_types::error::UserInputError::EmptyInputCoins
+        //  }));
+
+
+        
         let request_type =
             request_type.unwrap_or(ExecuteTransactionRequestType::WaitForEffectsCert);
         let (request, opts, sender, input_objs, txn, transaction, raw_transaction) =
@@ -406,7 +407,7 @@ impl WriteApiServer for TransactionExecutionApi {
         tx_bytes: Vec<Base64>,
         signatures: Vec<Vec<Base64>>,
         opts: Option<SuiTransactionBlockResponseOptions>,
-    ) -> RpcResult<Vec<SuiTransactionBlockResponse>> {
+    ) -> RpcResult<SuiBundleResponse> {
         with_tracing!(Duration::from_secs(10), async move {
             self.execute_transaction_block_bundle(tx_bytes, signatures, opts)
                 .await

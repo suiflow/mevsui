@@ -263,6 +263,8 @@ where
         client_addr: Option<SocketAddr>,
     ) -> SuiResult<()> {
         let tx_digest = request.digest();
+        // println!("submit_transaction_no_ticket: {:?}", request);
+        // println!("tx_digest[submit_transaction_no_ticket]: {:?}", tx_digest);
         debug!(
             ?tx_digest,
             "Received transaction execution request, no ticket."
@@ -751,6 +753,7 @@ where
     #[instrument(level = "trace", parent = task.trace_span.as_ref().and_then(|s| s.id()), skip_all)]
     async fn process_task(quorum_driver: Arc<QuorumDriver<A>>, task: QuorumDriverTask) {
         debug!(?task, "Quorum Driver processing task");
+        // println!("processing task: {:?}", task);
         let QuorumDriverTask {
             request,
             tx_cert,
@@ -867,6 +870,7 @@ where
             ExecuteRequestV3::Bundle(request) => {
                 let transactions = &request.transactions;
                 let tx_digest = ExecuteRequestV3::Bundle(request.clone()).digest();
+                // println!("tx_digest[bundle]: {:?}", tx_digest);
                 // let is_single_writer_tx = !transaction.contains_shared_object();
 
                 let _timer = Instant::now();
@@ -882,10 +886,12 @@ where
                                 certificate,
                                 newly_formed,
                             }) => {
+                                // println!("cert[1]: {:?}", certificate);
                                 debug!(?tx_digest, "Transaction processing succeeded");
                                 (certificate, newly_formed)
                             }
                             Ok(ProcessTransactionResult::Executed(effects_cert, events)) => {
+                                // println!("cert[2]: {:?}", effects_cert);
                                 debug!(
                                     ?tx_digest,
                                     "Transaction processing succeeded with effects directly"
@@ -901,6 +907,7 @@ where
                                 return;
                             }
                             Err(err) => {
+                                // println!("certs err[1]: {:?}", err);
                                 Self::handle_error(
                                     quorum_driver,
                                     ExecuteRequestV3::Bundle(request),
@@ -918,6 +925,9 @@ where
                     certs.push(cert);
                 }
 
+
+                // println!("collected certs: {:?}", certs.len());
+
                 let auth_agg = quorum_driver.validators.load();
                 let resp = auth_agg.process_soft_bundle(HandleSoftBundleCertificatesRequestV3 {
                     certificates: certs,
@@ -927,6 +937,8 @@ where
                     include_output_objects: request.include_output_objects,
                     include_auxiliary_data: request.include_auxiliary_data,
                 }, client_addr).await;
+
+                // println!("resp: {:?}", resp);
 
                 let response = match resp {
                     Ok(response) => {
