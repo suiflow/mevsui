@@ -9,6 +9,7 @@ use fastcrypto::encoding::Base64;
 use fastcrypto::traits::ToFromBytes;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::RpcModule;
+use sui_types::error::SuiError;
 
 use crate::authority_state::StateRead;
 use crate::error::{Error, SuiRpcInputError};
@@ -23,8 +24,7 @@ use sui_core::authority_client::NetworkAuthorityClient;
 use sui_core::transaction_orchestrator::TransactiondOrchestrator;
 use sui_json_rpc_api::{JsonRpcMetrics, WriteApiOpenRpc, WriteApiServer};
 use sui_json_rpc_types::{
-    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiTransactionBlock,
-    SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions,
+    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiBundleResponse, SuiTransactionBlock, SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions
 };
 use sui_open_rpc::Module;
 use sui_types::base_types::SuiAddress;
@@ -32,7 +32,7 @@ use sui_types::crypto::default_hash;
 use sui_types::digests::TransactionDigest;
 use sui_types::effects::TransactionEffectsAPI;
 use sui_types::quorum_driver_types::{
-    ExecuteTransactionRequestType, ExecuteTransactionRequestV3, ExecuteTransactionResponseV3,
+    ExecuteBundleRequestV3, ExecuteRequestV3, ExecuteTransactionRequestType, ExecuteTransactionRequestV3, ExecuteTransactionResponseV3
 };
 use sui_types::signature::GenericSignature;
 use sui_types::storage::PostExecutionPackageResolver;
@@ -135,6 +135,59 @@ impl TransactionExecutionApi {
         ))
     }
 
+    async fn execute_transaction_block_bundle(
+        &self,
+        tx_bytes: Vec<Base64>,
+        signatures: Vec<Vec<Base64>>,
+        opts: Option<SuiTransactionBlockResponseOptions>,
+    ) -> Result<SuiBundleResponse, Error> {
+        let mut inputs = vec![];
+        // let (request, opts, sender, input_objs, txn, transaction, raw_transaction) =
+        //     self.prepare_execute_transaction_block(tx_bytes, signatures, opts)?;
+
+        for (tx_bytes, sigs) in tx_bytes.into_iter().zip(signatures) {
+            let (request, opts, sender, input_objs, txn, transaction, raw_transaction) =
+                self.prepare_execute_transaction_block(tx_bytes, sigs, opts.clone())?;
+            inputs.push((
+                request,
+                opts,
+                sender,
+                input_objs,
+                txn,
+                transaction,
+                raw_transaction,
+            ));
+        }
+
+        // println!("inputs: {:?}", inputs);
+        let (starting_req, _, _, _, _, _, _) = inputs.first().unwrap().clone();
+        let bundle_request = ExecuteBundleRequestV3 {
+            transactions: inputs.iter().map(|(request, _, _, _, _, _, _)| request.transaction.clone()).collect(),
+            include_events: starting_req.include_events,
+            include_input_objects: starting_req.include_input_objects,
+            include_output_objects: starting_req.include_output_objects,
+            include_auxiliary_data: starting_req.include_auxiliary_data,
+        };
+        let digest = ExecuteRequestV3::Bundle(bundle_request.clone()).digest();
+
+        let transaction_orchestrator = self.transaction_orchestrator.clone();
+        let orch_timer = self.metrics.orchestrator_latency_ms.start_timer();
+        let (response, is_executed_locally) = spawn_monitored_task!(
+            transaction_orchestrator.execute_transaction_block_bundle(bundle_request, None)
+        )
+        .await?
+        .map_err(Error::from)?;
+        drop(orch_timer);
+
+        // println!("response: {:?}", response);
+
+        
+        Ok(SuiBundleResponse {
+            digest: inputs.iter().map(|(request, _, _, _, _, _, _)| *request.transaction.digest()).collect(),
+            bundle_id: digest,
+        })
+    }
+
     async fn execute_transaction_block(
         &self,
         tx_bytes: Base64,
@@ -142,6 +195,17 @@ impl TransactionExecutionApi {
         opts: Option<SuiTransactionBlockResponseOptions>,
         request_type: Option<ExecuteTransactionRequestType>,
     ) -> Result<SuiTransactionBlockResponse, Error> {
+
+        // println!("request_type: {:?}", request_type);
+        // println!("opts: {:?}", opts);   
+        // println!("tx_bytes: {:?}", tx_bytes);
+        // println!("signatures: {:?}", signatures);
+        // return Err(Error::from(SuiError::UserInputError { error: 
+        //     sui_types::error::UserInputError::EmptyInputCoins
+        //  }));
+
+
+        
         let request_type =
             request_type.unwrap_or(ExecuteTransactionRequestType::WaitForEffectsCert);
         let (request, opts, sender, input_objs, txn, transaction, raw_transaction) =
@@ -333,6 +397,19 @@ impl WriteApiServer for TransactionExecutionApi {
     ) -> RpcResult<SuiTransactionBlockResponse> {
         with_tracing!(Duration::from_secs(10), async move {
             self.execute_transaction_block(tx_bytes, signatures, opts, request_type)
+                .await
+        })
+    }
+
+    #[instrument(skip(self))]
+    async fn execute_transaction_block_bundle(
+        &self,
+        tx_bytes: Vec<Base64>,
+        signatures: Vec<Vec<Base64>>,
+        opts: Option<SuiTransactionBlockResponseOptions>,
+    ) -> RpcResult<SuiBundleResponse> {
+        with_tracing!(Duration::from_secs(10), async move {
+            self.execute_transaction_block_bundle(tx_bytes, signatures, opts)
                 .await
         })
     }

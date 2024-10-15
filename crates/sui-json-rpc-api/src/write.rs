@@ -6,8 +6,7 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 
 use sui_json_rpc_types::{
-    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiTransactionBlockResponse,
-    SuiTransactionBlockResponseOptions,
+    DevInspectArgs, DevInspectResults, DryRunTransactionBlockResponse, SuiBundleResponse, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions
 };
 use sui_open_rpc_macros::open_rpc;
 use sui_types::base_types::SuiAddress;
@@ -39,6 +38,19 @@ pub trait WriteApi {
         /// The request type, derived from `SuiTransactionBlockResponseOptions` if None
         request_type: Option<ExecuteTransactionRequestType>,
     ) -> RpcResult<SuiTransactionBlockResponse>;
+
+
+    /// Execute the transaction bundle and wait for results if desired.
+    #[method(name = "executeTransactionBlockBundle")]
+    async fn execute_transaction_block_bundle(
+        &self,
+        /// BCS serialized transaction data bytes without its type tag, as base-64 encoded string.
+        tx_bytes: Vec<Base64>,
+        /// A list of signatures (`flag || signature || pubkey` bytes, as base-64 encoded string). Signature is committed to the intent message of the transaction data, as base-64 encoded string.
+        signatures: Vec<Vec<Base64>>,
+        /// options for specifying the content to be returned
+        options: Option<SuiTransactionBlockResponseOptions>,
+    ) -> RpcResult<SuiBundleResponse>;
 
     /// Runs the transaction in dev-inspect mode. Which allows for nearly any
     /// transaction (or Move call) with any arguments. Detailed results are
