@@ -245,6 +245,14 @@ pub struct SuiTransactionBlockResponse {
     pub raw_effects: Vec<u8>,
 }
 
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", rename = "BundleResponse")]
+pub struct SuiBundleResponse {
+    pub digest: Vec<TransactionDigest>,
+    pub bundle_id: TransactionDigest,
+}
+
 impl SuiTransactionBlockResponse {
     pub fn new(digest: TransactionDigest) -> Self {
         Self {
