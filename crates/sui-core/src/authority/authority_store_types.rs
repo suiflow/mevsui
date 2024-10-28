@@ -240,7 +240,7 @@ pub fn get_store_object_pair(object: Object, indirect_objects_threshold: usize) 
     )
 }
 
-pub(crate) fn try_construct_object(
+pub fn try_construct_object(
     object_key: &ObjectKey,
     store_object: StoreObjectValue,
     indirect_object: Option<StoreMoveObject>,
