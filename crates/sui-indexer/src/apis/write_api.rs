@@ -77,6 +77,16 @@ impl WriteApiServer for WriteApi {
     ) -> RpcResult<DryRunTransactionBlockResponse> {
         self.fullnode.dry_run_transaction_block(tx_bytes).await
     }
+
+    async fn dry_run_transaction_block_override(
+        &self,
+        tx_bytes: Base64,
+        override_objects: Base64,
+    ) -> RpcResult<DryRunTransactionBlockResponse> {
+        self.fullnode
+            .dry_run_transaction_block_override(tx_bytes, override_objects)
+            .await
+    }
 }
 
 impl SuiRpcModule for WriteApi {
