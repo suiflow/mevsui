@@ -124,7 +124,7 @@ pub trait StateRead: Send + Sync {
         Option<ObjectID>,
     )>;
 
-    async fn dry_exec_transaction_override_objects(
+    async fn dry_exec_transaction_override_objects_trait(
         &self,
         transaction: TransactionData,
         transaction_digest: TransactionDigest,
@@ -355,7 +355,7 @@ impl StateRead for AuthorityState {
     }
 
     #[allow(clippy::type_complexity)]
-    async fn dry_exec_transaction_override_objects(
+    async fn dry_exec_transaction_override_objects_trait(
         &self,
         transaction: TransactionData,
         transaction_digest: TransactionDigest,

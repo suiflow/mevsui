@@ -296,7 +296,11 @@ impl TransactionExecutionApi {
         let sender = txn_data.sender();
         let (resp, written_objects, transaction_effects, mock_gas) = self
             .state
-            .dry_exec_transaction_override_objects(txn_data.clone(), txn_digest, override_objects)
+            .dry_exec_transaction_override_objects_trait(
+                txn_data.clone(),
+                txn_digest,
+                override_objects,
+            )
             .await?;
         let object_cache = ObjectProviderCache::new_with_cache(self.state.clone(), written_objects);
         let balance_changes = get_balance_changes_from_effect(

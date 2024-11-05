@@ -1872,7 +1872,7 @@ impl AuthorityState {
 
     #[instrument(skip_all)]
     #[allow(clippy::type_complexity)]
-    async fn dry_exec_transaction_override_objects(
+    pub async fn dry_exec_transaction_override_objects(
         &self,
         transaction: TransactionData,
         transaction_digest: TransactionDigest,
