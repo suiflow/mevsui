@@ -330,7 +330,6 @@ impl InputLoaderCache<'_> {
 
 impl ObjectCacheRead for InputLoaderCache<'_> {
     fn get_package_object(&self, id: &ObjectID) -> SuiResult<Option<PackageObject>> {
-        tracing::warn!("get_package_object {:?}", id);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if obj.is_package() && cache_id == id {
@@ -343,7 +342,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn get_object(&self, id: &ObjectID) -> SuiResult<Option<Object>> {
-        tracing::warn!("get_object {:?}", id);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if cache_id == id {
@@ -356,7 +354,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn force_reload_system_packages(&self, system_package_ids: &[ObjectID]) {
-        tracing::warn!("force_reload_system_packages {:?}", system_package_ids);
         self.loader
             .cache
             .force_reload_system_packages(system_package_ids);
@@ -366,7 +363,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_id: ObjectID,
     ) -> SuiResult<Option<ObjectRef>> {
-        tracing::warn!("get_latest_object_ref_or_tombstone {:?}", object_id);
         self.loader
             .cache
             .get_latest_object_ref_or_tombstone(object_id)
@@ -376,7 +372,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_id: ObjectID,
     ) -> SuiResult<Option<(ObjectKey, ObjectOrTombstone)>> {
-        tracing::warn!("get_latest_object_or_tombstone {:?}", object_id);
         self.loader.cache.get_latest_object_or_tombstone(object_id)
     }
 
@@ -385,7 +380,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<Option<Object>> {
-        tracing::warn!("get_object_by_key {:?} {:?}", object_id, version);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if cache_id == object_id && obj.version() == version {
@@ -400,7 +394,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_keys: &[ObjectKey],
     ) -> SuiResult<Vec<Option<Object>>> {
-        tracing::warn!("multi_get_objects_by_key {:?}", object_keys);
         self.loader.cache.multi_get_objects_by_key(object_keys)
     }
 
@@ -409,7 +402,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<bool> {
-        tracing::warn!("object_exists_by_key {:?} {:?}", object_id, version);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if cache_id == object_id && obj.version() == version {
@@ -421,7 +413,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn multi_object_exists_by_key(&self, object_keys: &[ObjectKey]) -> SuiResult<Vec<bool>> {
-        tracing::warn!("multi_object_exists_by_key {:?}", object_keys);
         self.loader.cache.multi_object_exists_by_key(object_keys)
     }
 
@@ -430,7 +421,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<Option<Object>> {
-        tracing::warn!("find_object_lt_or_eq_version {:?} {:?}", object_id, version);
         self.loader
             .cache
             .find_object_lt_or_eq_version(object_id, version)
@@ -441,13 +431,10 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         obj_ref: ObjectRef,
         epoch_store: &AuthorityPerEpochStore,
     ) -> authority_store::SuiLockResult {
-        tracing::warn!("get_lock {:?}", obj_ref);
         self.loader.cache.get_lock(obj_ref, epoch_store)
     }
 
     fn _get_live_objref(&self, object_id: ObjectID) -> SuiResult<ObjectRef> {
-        tracing::warn!("_get_live_objref {:?}", object_id);
-
         for (cache_id, obj) in &self.cache {
             if cache_id == &object_id {
                 return Ok((object_id, obj.version(), obj.digest()));
@@ -458,19 +445,16 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn check_owned_objects_are_live(&self, owned_object_refs: &[ObjectRef]) -> SuiResult {
-        tracing::warn!("check_owned_objects_are_live {:?}", owned_object_refs);
         self.loader
             .cache
             .check_owned_objects_are_live(owned_object_refs)
     }
 
     fn get_sui_system_state_object_unsafe(&self) -> SuiResult<SuiSystemState> {
-        tracing::warn!("get_sui_system_state_object_unsafe");
         self.loader.cache.get_sui_system_state_object_unsafe()
     }
 
     fn get_bridge_object_unsafe(&self) -> SuiResult<sui_types::bridge::Bridge> {
-        tracing::warn!("get_bridge_object_unsafe");
         self.loader.cache.get_bridge_object_unsafe()
     }
 
@@ -480,12 +464,6 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         version: SequenceNumber,
         epoch_id: EpochId,
     ) -> SuiResult<Option<sui_types::storage::MarkerValue>> {
-        tracing::warn!(
-            "get_marker_value {:?} {:?} {:?}",
-            object_id,
-            version,
-            epoch_id
-        );
         self.loader
             .cache
             .get_marker_value(object_id, version, epoch_id)
@@ -496,12 +474,10 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         epoch_id: EpochId,
     ) -> SuiResult<Option<(SequenceNumber, sui_types::storage::MarkerValue)>> {
-        tracing::warn!("get_latest_marker {:?} {:?}", object_id, epoch_id);
         self.loader.cache.get_latest_marker(object_id, epoch_id)
     }
 
     fn get_highest_pruned_checkpoint(&self) -> SuiResult<CheckpointSequenceNumber> {
-        tracing::warn!("get_highest_pruned_checkpoint");
         self.loader.cache.get_highest_pruned_checkpoint()
     }
 }
@@ -2174,14 +2150,10 @@ impl AuthorityState {
         Option<ObjectID>,
     )> {
         // Cheap validity checks for a transaction, including input size limits.
-        tracing::info!("dry_exec_transaction_override_impl");
         transaction.validity_check_no_gas_check(epoch_store.protocol_config())?;
-        tracing::info!("dry_exec_transaction_override_impl: validity check passed");
 
         let input_object_kinds = transaction.input_objects()?;
-        tracing::info!("dry_exec_transaction_override_impl: input object kinds");
         let receiving_object_refs = transaction.receiving_objects();
-        tracing::info!("dry_exec_transaction_override_impl: receiving object refs");
 
         sui_transaction_checks::deny::check_transaction_for_signing(
             &transaction,
@@ -2191,7 +2163,6 @@ impl AuthorityState {
             &self.config.transaction_deny_config,
             self.get_backing_package_store().as_ref(),
         )?;
-        tracing::info!("dry_exec_transaction_override_impl: deny check passed");
 
         let cached_input_loader = InputLoaderCache {
             loader: &self.input_loader,
@@ -2207,15 +2178,9 @@ impl AuthorityState {
         ) {
             Ok((input_objects, receiving_objects)) => (input_objects, receiving_objects),
             Err(e) => {
-                tracing::error!(
-                    "dry_exec_transaction_override_impl: error reading objects for signing: {:?}",
-                    e
-                );
                 return Err(e);
             }
         };
-
-        tracing::info!("dry_exec_transaction_override_impl: read objects for signing");
 
         // make a gas object if one was not provided
         let mut gas_object_refs = transaction.gas().to_vec();
@@ -2233,7 +2198,6 @@ impl AuthorityState {
             );
             let gas_object_ref = gas_object.compute_object_reference();
             gas_object_refs = vec![gas_object_ref];
-            tracing::info!("dry_exec_transaction_override_impl: about to check_transaction_input_with_given_gas");
             (
                 sui_transaction_checks::check_transaction_input_with_given_gas(
                     epoch_store.protocol_config(),
@@ -2248,7 +2212,6 @@ impl AuthorityState {
                 Some(gas_object_id),
             )
         } else {
-            tracing::info!("dry_exec_transaction_override_impl: about to check_transaction_input");
             (
                 sui_transaction_checks::check_transaction_input(
                     epoch_store.protocol_config(),
@@ -2262,8 +2225,6 @@ impl AuthorityState {
                 None,
             )
         };
-
-        tracing::info!("dry_exec_transaction_override_impl: checked transaction input");
 
         let protocol_config = epoch_store.protocol_config();
         let (kind, signer, _) = transaction.execution_parts();
@@ -4972,6 +4933,7 @@ impl AuthorityState {
             .map_err(SuiError::from)?;
         let lock_info = match lock_info {
             ObjectLockStatus::LockedAtDifferentVersion { locked_ref } => {
+                tracing::error!("unavailable authority.rs:get_transaction_lock");
                 return Err(UserInputError::ObjectVersionUnavailableForConsumption {
                     provided_obj_ref: *object_ref,
                     current_version: locked_ref.1,
