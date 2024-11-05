@@ -88,7 +88,7 @@ mod base_types_tests;
     JsonSchema,
 )]
 #[cfg_attr(feature = "fuzzing", derive(proptest_derive::Arbitrary))]
-pub struct SequenceNumber(u64);
+pub struct SequenceNumber(pub u64);
 
 impl SequenceNumber {
     pub fn one_before(&self) -> Option<SequenceNumber> {
