@@ -449,6 +449,13 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
 
     fn _get_live_objref(&self, object_id: ObjectID) -> SuiResult<ObjectRef> {
         tracing::warn!("_get_live_objref {:?}", object_id);
+
+        for (cache_id, obj) in &self.cache {
+            if cache_id == &object_id {
+                return Ok((object_id, obj.version(), obj.digest()));
+            }
+        }
+
         self.loader.cache._get_live_objref(object_id)
     }
 
