@@ -552,6 +552,10 @@ mod checked {
                     Owner::Shared {
                         initial_shared_version: actual_initial_shared_version,
                     } => {
+                        if input_initial_shared_version != actual_initial_shared_version {
+                            tracing::error!("object {:?} initial_shared_version {:?} actual_initial_shared_version {:?}",
+                                object.id(), input_initial_shared_version, actual_initial_shared_version);
+                        }
                         fp_ensure!(
                             input_initial_shared_version == actual_initial_shared_version,
                             UserInputError::SharedObjectStartingVersionMismatch
