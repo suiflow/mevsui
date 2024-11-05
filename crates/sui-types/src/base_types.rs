@@ -161,7 +161,7 @@ pub fn update_object_ref_for_testing(object_ref: ObjectRef) -> ObjectRef {
 /// The inner representation is private to prevent incorrectly constructing an `Other` instead of
 /// one of the specialized variants, e.g. `Other(GasCoin::type_())` instead of `GasCoin`
 #[derive(Eq, PartialEq, PartialOrd, Ord, Debug, Clone, Deserialize, Serialize, Hash)]
-pub struct MoveObjectType(MoveObjectType_);
+pub struct MoveObjectType(pub MoveObjectType_);
 
 /// Even though it is declared public, it is the "private", internal representation for
 /// `MoveObjectType`
