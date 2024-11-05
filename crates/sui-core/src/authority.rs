@@ -439,7 +439,11 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     fn _get_live_objref(&self, object_id: ObjectID) -> SuiResult<ObjectRef> {
         for (cache_id, obj) in &self.cache {
             if cache_id == &object_id {
-                return Ok((object_id, obj.version().next(), obj.digest()));
+                return Ok((
+                    object_id,
+                    obj.version().one_before().unwrap_or_default(),
+                    obj.digest(),
+                ));
             }
         }
 
