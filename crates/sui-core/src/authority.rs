@@ -2205,10 +2205,14 @@ impl AuthorityState {
         Option<ObjectID>,
     )> {
         // Cheap validity checks for a transaction, including input size limits.
+        tracing::info!("dry_exec_transaction_override_impl");
         transaction.validity_check_no_gas_check(epoch_store.protocol_config())?;
+        tracing::info!("dry_exec_transaction_override_impl: validity check passed");
 
         let input_object_kinds = transaction.input_objects()?;
+        tracing::info!("dry_exec_transaction_override_impl: input object kinds");
         let receiving_object_refs = transaction.receiving_objects();
+        tracing::info!("dry_exec_transaction_override_impl: receiving object refs");
 
         sui_transaction_checks::deny::check_transaction_for_signing(
             &transaction,
@@ -2218,19 +2222,29 @@ impl AuthorityState {
             &self.config.transaction_deny_config,
             self.get_backing_package_store().as_ref(),
         )?;
+        tracing::info!("dry_exec_transaction_override_impl: deny check passed");
 
         let cached_input_loader = InputLoaderCache {
             loader: &self.input_loader,
             cache: override_objects.clone(),
         };
 
-        let (input_objects, receiving_objects) = cached_input_loader.read_objects_for_signing(
+        let (input_objects, receiving_objects) = match cached_input_loader.read_objects_for_signing(
             // We don't want to cache this transaction since it's a dry run.
             None,
             &input_object_kinds,
             &receiving_object_refs,
             epoch_store.epoch(),
-        )?;
+        ) {
+            Ok((input_objects, receiving_objects)) => (input_objects, receiving_objects),
+            Err(e) => {
+                tracing::error!(
+                    "dry_exec_transaction_override_impl: error reading objects for signing: {:?}",
+                    e
+                );
+                return Err(e);
+            }
+        };
 
         // make a gas object if one was not provided
         let mut gas_object_refs = transaction.gas().to_vec();
