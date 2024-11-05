@@ -9,6 +9,7 @@ use fastcrypto::encoding::Base64;
 use fastcrypto::traits::ToFromBytes;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::RpcModule;
+use sui_types::object::Object;
 
 use crate::authority_state::StateRead;
 use crate::error::{Error, SuiRpcInputError};
@@ -27,7 +28,7 @@ use sui_json_rpc_types::{
     SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions,
 };
 use sui_open_rpc::Module;
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::crypto::default_hash;
 use sui_types::digests::TransactionDigest;
 use sui_types::effects::TransactionEffectsAPI;
@@ -282,6 +283,48 @@ impl TransactionExecutionApi {
         Ok((intent_msg.value, txn_digest, input_objs))
     }
 
+    // with object override
+    async fn dry_run_transaction_block_override(
+        &self,
+        tx_bytes: Base64,
+        override_objects: Base64,
+    ) -> Result<DryRunTransactionBlockResponse, Error> {
+        let (txn_data, txn_digest, input_objs) =
+            self.prepare_dry_run_transaction_block(tx_bytes)?;
+        let override_objects: Vec<(ObjectID, Object)> = self.convert_bytes(override_objects)?;
+
+        let sender = txn_data.sender();
+        let (resp, written_objects, transaction_effects, mock_gas) = self
+            .state
+            .dry_exec_transaction_override_objects(txn_data.clone(), txn_digest, override_objects)
+            .await?;
+        let object_cache = ObjectProviderCache::new_with_cache(self.state.clone(), written_objects);
+        let balance_changes = get_balance_changes_from_effect(
+            &object_cache,
+            &transaction_effects,
+            input_objs,
+            mock_gas,
+        )
+        .await?;
+        let object_changes = get_object_changes(
+            &object_cache,
+            &transaction_effects,
+            sender,
+            transaction_effects.modified_at_versions(),
+            transaction_effects.all_changed_objects(),
+            transaction_effects.all_removed_objects(),
+        )
+        .await?;
+
+        Ok(DryRunTransactionBlockResponse {
+            effects: resp.effects,
+            events: resp.events,
+            object_changes,
+            balance_changes,
+            input: resp.input,
+        })
+    }
+
     async fn dry_run_transaction_block(
         &self,
         tx_bytes: Base64,
@@ -377,6 +420,18 @@ impl WriteApiServer for TransactionExecutionApi {
         tx_bytes: Base64,
     ) -> RpcResult<DryRunTransactionBlockResponse> {
         with_tracing!(async move { self.dry_run_transaction_block(tx_bytes).await })
+    }
+
+    #[instrument(skip(self))]
+    async fn dry_run_transaction_block_override(
+        &self,
+        tx_bytes: Base64,
+        override_objects: Base64,
+    ) -> RpcResult<DryRunTransactionBlockResponse> {
+        with_tracing!(async move {
+            self.dry_run_transaction_block_override(tx_bytes, override_objects)
+                .await
+        })
     }
 }
 
