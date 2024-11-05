@@ -252,6 +252,13 @@ mod checked {
                 && object.version() == *version
                 && object.digest() == *object_digest)
             {
+                if object.version() != *version {
+                    tracing::error!(
+                        "check receiving object {:?} {:?}",
+                        object.version(),
+                        *version
+                    );
+                }
                 // Version mismatch
                 fp_ensure!(
                     object.version() == *version,

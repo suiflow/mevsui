@@ -257,6 +257,7 @@ pub trait ObjectCacheRead: Send + Sync {
                 None => {
                     let live_objref = self._get_live_objref(object_ref.0)?;
                     let error = if live_objref.1 >= object_ref.1 {
+                        tracing::error!("unavailable multi_get_objects_with_more_accurate_error_return {:?} {:?}", object_ref, live_objref);
                         UserInputError::ObjectVersionUnavailableForConsumption {
                             provided_obj_ref: *object_ref,
                             current_version: live_objref.1,

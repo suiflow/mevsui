@@ -1635,6 +1635,11 @@ impl ObjectCacheRead for WritebackCache {
             |obj_ref| match self.get_object_by_id_cache_only("object_is_live", &obj_ref.0) {
                 CacheResult::Hit((version, obj)) => {
                     if obj.compute_object_reference() != *obj_ref {
+                        tracing::error!(
+                            "unavailable check_owned_objects_are_live {:?} {:?}",
+                            obj_ref,
+                            obj
+                        );
                         Err(UserInputError::ObjectVersionUnavailableForConsumption {
                             provided_obj_ref: *obj_ref,
                             current_version: version,
