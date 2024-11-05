@@ -331,8 +331,8 @@ impl InputLoaderCache<'_> {
 }
 
 impl ObjectCacheRead for InputLoaderCache<'_> {
-    // In read_objects_for_signing, only the following two methods are used
     fn get_package_object(&self, id: &ObjectID) -> SuiResult<Option<PackageObject>> {
+        tracing::warn!("get_package_object {:?}", id);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if obj.is_package() && cache_id == id {
@@ -345,6 +345,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn get_object(&self, id: &ObjectID) -> SuiResult<Option<Object>> {
+        tracing::warn!("get_object {:?}", id);
         // first query the cache
         for (cache_id, obj) in &self.cache {
             if cache_id == id {
@@ -357,6 +358,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     }
 
     fn force_reload_system_packages(&self, system_package_ids: &[ObjectID]) {
+        tracing::warn!("force_reload_system_packages {:?}", system_package_ids);
         self.loader
             .cache
             .force_reload_system_packages(system_package_ids);
@@ -366,6 +368,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_id: ObjectID,
     ) -> SuiResult<Option<ObjectRef>> {
+        tracing::warn!("get_latest_object_ref_or_tombstone {:?}", object_id);
         self.loader
             .cache
             .get_latest_object_ref_or_tombstone(object_id)
@@ -375,6 +378,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_id: ObjectID,
     ) -> SuiResult<Option<(ObjectKey, ObjectOrTombstone)>> {
+        tracing::warn!("get_latest_object_or_tombstone {:?}", object_id);
         self.loader.cache.get_latest_object_or_tombstone(object_id)
     }
 
@@ -383,6 +387,14 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<Option<Object>> {
+        tracing::warn!("get_object_by_key {:?} {:?}", object_id, version);
+        // first query the cache
+        for (cache_id, obj) in &self.cache {
+            if cache_id == object_id && obj.version() == version {
+                return Ok(Some(obj.clone()));
+            }
+        }
+
         self.loader.cache.get_object_by_key(object_id, version)
     }
 
@@ -390,6 +402,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_keys: &[ObjectKey],
     ) -> SuiResult<Vec<Option<Object>>> {
+        tracing::warn!("multi_get_objects_by_key {:?}", object_keys);
         self.loader.cache.multi_get_objects_by_key(object_keys)
     }
 
@@ -398,10 +411,19 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<bool> {
+        tracing::warn!("object_exists_by_key {:?} {:?}", object_id, version);
+        // first query the cache
+        for (cache_id, obj) in &self.cache {
+            if cache_id == object_id && obj.version() == version {
+                return Ok(true);
+            }
+        }
+
         self.loader.cache.object_exists_by_key(object_id, version)
     }
 
     fn multi_object_exists_by_key(&self, object_keys: &[ObjectKey]) -> SuiResult<Vec<bool>> {
+        tracing::warn!("multi_object_exists_by_key {:?}", object_keys);
         self.loader.cache.multi_object_exists_by_key(object_keys)
     }
 
@@ -410,6 +432,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: ObjectID,
         version: SequenceNumber,
     ) -> SuiResult<Option<Object>> {
+        tracing::warn!("find_object_lt_or_eq_version {:?} {:?}", object_id, version);
         self.loader
             .cache
             .find_object_lt_or_eq_version(object_id, version)
@@ -420,24 +443,29 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         obj_ref: ObjectRef,
         epoch_store: &AuthorityPerEpochStore,
     ) -> authority_store::SuiLockResult {
+        tracing::warn!("get_lock {:?}", obj_ref);
         self.loader.cache.get_lock(obj_ref, epoch_store)
     }
 
     fn _get_live_objref(&self, object_id: ObjectID) -> SuiResult<ObjectRef> {
+        tracing::warn!("_get_live_objref {:?}", object_id);
         self.loader.cache._get_live_objref(object_id)
     }
 
     fn check_owned_objects_are_live(&self, owned_object_refs: &[ObjectRef]) -> SuiResult {
+        tracing::warn!("check_owned_objects_are_live {:?}", owned_object_refs);
         self.loader
             .cache
             .check_owned_objects_are_live(owned_object_refs)
     }
 
     fn get_sui_system_state_object_unsafe(&self) -> SuiResult<SuiSystemState> {
+        tracing::warn!("get_sui_system_state_object_unsafe");
         self.loader.cache.get_sui_system_state_object_unsafe()
     }
 
     fn get_bridge_object_unsafe(&self) -> SuiResult<sui_types::bridge::Bridge> {
+        tracing::warn!("get_bridge_object_unsafe");
         self.loader.cache.get_bridge_object_unsafe()
     }
 
@@ -447,6 +475,12 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         version: SequenceNumber,
         epoch_id: EpochId,
     ) -> SuiResult<Option<sui_types::storage::MarkerValue>> {
+        tracing::warn!(
+            "get_marker_value {:?} {:?} {:?}",
+            object_id,
+            version,
+            epoch_id
+        );
         self.loader
             .cache
             .get_marker_value(object_id, version, epoch_id)
@@ -457,10 +491,12 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         object_id: &ObjectID,
         epoch_id: EpochId,
     ) -> SuiResult<Option<(SequenceNumber, sui_types::storage::MarkerValue)>> {
+        tracing::warn!("get_latest_marker {:?} {:?}", object_id, epoch_id);
         self.loader.cache.get_latest_marker(object_id, epoch_id)
     }
 
     fn get_highest_pruned_checkpoint(&self) -> SuiResult<CheckpointSequenceNumber> {
+        tracing::warn!("get_highest_pruned_checkpoint");
         self.loader.cache.get_highest_pruned_checkpoint()
     }
 }
