@@ -396,7 +396,27 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
         &self,
         object_keys: &[ObjectKey],
     ) -> SuiResult<Vec<Option<Object>>> {
-        self.loader.cache.multi_get_objects_by_key(object_keys)
+        // get one by one
+
+        let mut results = Vec::with_capacity(object_keys.len());
+        for object_key in object_keys {
+            let object_id = &object_key.0;
+            let version = object_key.1;
+            let mut found = false;
+            for (cache_id, obj) in &self.cache {
+                if cache_id == object_id && obj.version() == version {
+                    results.push(Some(obj.clone()));
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                results.push(self.loader.cache.get_object_by_key(object_id, version)?);
+            }
+        }
+
+        Ok(results)
     }
 
     fn object_exists_by_key(
@@ -439,11 +459,7 @@ impl ObjectCacheRead for InputLoaderCache<'_> {
     fn _get_live_objref(&self, object_id: ObjectID) -> SuiResult<ObjectRef> {
         for (cache_id, obj) in &self.cache {
             if cache_id == &object_id {
-                return Ok((
-                    object_id,
-                    obj.version().one_before().unwrap_or_default(),
-                    obj.digest(),
-                ));
+                return Ok((object_id, obj.version(), obj.digest()));
             }
         }
 
