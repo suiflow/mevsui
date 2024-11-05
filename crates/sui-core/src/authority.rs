@@ -2246,6 +2246,8 @@ impl AuthorityState {
             }
         };
 
+        tracing::info!("dry_exec_transaction_override_impl: read objects for signing");
+
         // make a gas object if one was not provided
         let mut gas_object_refs = transaction.gas().to_vec();
         let ((gas_status, checked_input_objects), mock_gas) = if transaction.gas().is_empty() {
@@ -2262,6 +2264,7 @@ impl AuthorityState {
             );
             let gas_object_ref = gas_object.compute_object_reference();
             gas_object_refs = vec![gas_object_ref];
+            tracing::info!("dry_exec_transaction_override_impl: about to check_transaction_input_with_given_gas");
             (
                 sui_transaction_checks::check_transaction_input_with_given_gas(
                     epoch_store.protocol_config(),
@@ -2276,6 +2279,7 @@ impl AuthorityState {
                 Some(gas_object_id),
             )
         } else {
+            tracing::info!("dry_exec_transaction_override_impl: about to check_transaction_input");
             (
                 sui_transaction_checks::check_transaction_input(
                     epoch_store.protocol_config(),
@@ -2289,6 +2293,8 @@ impl AuthorityState {
                 None,
             )
         };
+
+        tracing::info!("dry_exec_transaction_override_impl: checked transaction input");
 
         let protocol_config = epoch_store.protocol_config();
         let (kind, signer, _) = transaction.execution_parts();
