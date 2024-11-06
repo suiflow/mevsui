@@ -299,10 +299,14 @@ impl TransactionExecutionApi {
             .dry_exec_transaction_override_objects_trait(
                 txn_data.clone(),
                 txn_digest,
-                override_objects,
+                override_objects.clone(),
             )
             .await?;
-        let object_cache = ObjectProviderCache::new_with_cache(self.state.clone(), written_objects);
+        let mut object_cache =
+            ObjectProviderCache::new_with_cache(self.state.clone(), written_objects);
+        object_cache.insert_objects_into_cache(
+            override_objects.into_iter().map(|(_id, obj)| obj).collect(),
+        );
         let balance_changes = get_balance_changes_from_effect(
             &object_cache,
             &transaction_effects,
