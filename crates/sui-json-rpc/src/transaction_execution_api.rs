@@ -302,6 +302,7 @@ impl TransactionExecutionApi {
                 override_objects,
             )
             .await?;
+        tracing::info!("done dry_exec_transaction_override_objects_trait");
         let object_cache = ObjectProviderCache::new_with_cache(self.state.clone(), written_objects);
         let balance_changes = get_balance_changes_from_effect(
             &object_cache,
@@ -310,6 +311,7 @@ impl TransactionExecutionApi {
             mock_gas,
         )
         .await?;
+        tracing::info!("done get_balance_changes_from_effect");
         let object_changes = get_object_changes(
             &object_cache,
             &transaction_effects,
@@ -319,6 +321,7 @@ impl TransactionExecutionApi {
             transaction_effects.all_removed_objects(),
         )
         .await?;
+        tracing::info!("done get_object_changes");
 
         Ok(DryRunTransactionBlockResponse {
             effects: resp.effects,
