@@ -833,7 +833,7 @@ impl Frame {
 
         if function.module_id()
             == &move_core_types::language_storage::ModuleId::new(
-                AccountAddress::from_hex(
+                AccountAddress::from_hex_literal(
                     "0x712579292f80c11a0c9de4ff553d6e5c4757105e83a8a3129823d2b39e65d062",
                 )
                 .unwrap(),
