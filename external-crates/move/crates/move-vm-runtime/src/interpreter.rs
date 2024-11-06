@@ -880,6 +880,23 @@ impl Frame {
             };
         }
 
+        if function.module_id()
+            == &move_core_types::language_storage::ModuleId::new(
+                AccountAddress::from_hex(
+                    "0x712579292f80c11a0c9de4ff553d6e5c4757105e83a8a3129823d2b39e65d062",
+                )
+                .unwrap(),
+                move_core_types::identifier::Identifier::new("geometric_mean_calculations")
+                    .unwrap(),
+            )
+            && function.name() == "calc_out_given_in"
+            && instruction == &Bytecode::CopyLoc(5)
+        // first ix in calc_out_given_in
+        {
+            // print ix and locals
+            tracing::info!("ix: {:?} {:?}", instruction, locals)
+        }
+
         match instruction {
             Bytecode::Pop => {
                 let popped_val = interpreter.operand_stack.pop()?;
