@@ -98,7 +98,7 @@ mod checked {
         TransactionEffects,
         Result<Mode::ExecutionResults, ExecutionError>,
     ) {
-        move_vm.print_module_cache_sizes();
+        // move_vm.print_module_cache_sizes();
         let input_objects = input_objects.into_inner();
         let mutable_inputs = if enable_expensive_checks {
             input_objects.mutable_inputs().keys().copied().collect()
