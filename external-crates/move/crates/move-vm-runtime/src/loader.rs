@@ -130,6 +130,16 @@ struct CacheCursor {
 }
 
 impl ModuleCache {
+    pub fn sizes(&self) -> (usize, usize, usize, usize, usize) {
+        (
+            self.compiled_modules.len(),
+            self.verified_dependencies.len(),
+            self.loaded_modules.len(),
+            self.datatypes.len(),
+            self.functions.len(),
+        )
+    }
+
     fn new() -> Self {
         Self {
             compiled_modules: BinaryCache::new(),
@@ -804,7 +814,7 @@ impl<'a> ModuleLoader<'a> {
 // (operating on values on the stack) and when cache needs updating the mutex must be taken.
 // The `pub(crate)` API is what a Loader offers to the runtime.
 pub(crate) struct Loader {
-    module_cache: RwLock<ModuleCache>,
+    pub module_cache: RwLock<ModuleCache>,
     type_cache: RwLock<TypeCache>,
     natives: NativeFunctions,
     vm_config: VMConfig,

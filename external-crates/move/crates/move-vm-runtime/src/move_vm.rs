@@ -102,4 +102,11 @@ impl MoveVM {
     pub fn get_runtime(&self) -> &VMRuntime {
         &self.runtime
     }
+
+    pub fn print_module_cache_sizes(&self) {
+        println!(
+            "Module cache sizes: {:?}",
+            &self.runtime.loader().module_cache.read().sizes()
+        );
+    }
 }
