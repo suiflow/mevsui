@@ -300,6 +300,31 @@ pub fn derive_dbmap_utils_general(input: TokenStream) -> TokenStream {
                     #generics_names: #generics_bounds_token,
                 )*
             > #intermediate_db_map_struct_name #generics {
+            /// Opens the tables in read-only mode but returns an instance of the original struct.
+            /// All write operations will fail at runtime.
+            #[allow(unused_parens)]
+            pub fn open_tables_read_only_as_rw(
+                path: std::path::PathBuf,
+                metric_conf: typed_store::rocks::MetricConf,
+                global_db_options_override: Option<typed_store::rocksdb::Options>,
+                tables_db_options_override: Option<typed_store::rocks::DBMapTableConfigMap>,
+            ) -> Self {
+                let inner = #intermediate_db_map_struct_name::open_tables_impl(
+                    path.clone(),
+                    Some(path),
+                    false,
+                    metric_conf,
+                    global_db_options_override,
+                    tables_db_options_override,
+                    false,
+                );
+                Self {
+                    #(
+                        #field_names: #post_process_fn(inner.#field_names),
+                    )*
+                }
+            }
+
             /// Opens a set of tables in read-write mode
             /// If as_secondary_with_path is set, the DB is opened in read only mode with the path specified
             pub fn open_tables_impl(
