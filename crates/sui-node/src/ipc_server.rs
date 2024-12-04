@@ -10,7 +10,6 @@ use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
     GenericNamespaced, ListenerOptions,
 };
-use prometheus::Registry;
 use sui_json_rpc_api::WriteApiServer;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, error, info};
@@ -96,7 +95,7 @@ pub async fn build_ipc_server(
     state: Arc<AuthorityState>,
     transaction_orchestrator: &Option<Arc<TransactiondOrchestrator<NetworkAuthorityClient>>>,
     config: &NodeConfig,
-    prometheus_registry: &Registry,
+    metrics: Arc<JsonRpcMetrics>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
@@ -109,7 +108,6 @@ pub async fn build_ipc_server(
         return Ok(None);
     };
 
-    let metrics = Arc::new(JsonRpcMetrics::new(prometheus_registry));
     let tx_execution_api =
         TransactionExecutionApi::new(state, transaction_orchestrator.clone(), metrics);
     let api = Arc::new(tx_execution_api);

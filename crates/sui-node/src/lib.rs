@@ -760,11 +760,13 @@ impl SuiNode {
             None
         };
 
+        let metrics = Arc::new(JsonRpcMetrics::new(&prometheus_registry));
+
         let ipc_server = build_ipc_server(
             state.clone(),
             &transaction_orchestrator.clone(),
             &config,
-            &prometheus_registry,
+            metrics.clone(),
         )
         .await?;
 
@@ -776,6 +778,7 @@ impl SuiNode {
             &prometheus_registry,
             custom_rpc_runtime,
             software_version,
+            metrics,
         )
         .await?;
 
@@ -2008,6 +2011,7 @@ pub async fn build_http_server(
     prometheus_registry: &Registry,
     _custom_runtime: Option<Handle>,
     software_version: &'static str,
+    metrics: Arc<JsonRpcMetrics>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
@@ -2026,7 +2030,6 @@ pub async fn build_http_server(
 
         let kv_store = build_kv_store(&state, config, prometheus_registry)?;
 
-        let metrics = Arc::new(JsonRpcMetrics::new(prometheus_registry));
         server.register_module(ReadApi::new(
             state.clone(),
             kv_store.clone(),
