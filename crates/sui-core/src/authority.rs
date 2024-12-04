@@ -2,6 +2,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::cache_update_handler::CacheUpdateHandler;
 use crate::execution_cache::ExecutionCacheTraitPointers;
 use crate::execution_cache::TransactionCacheRead;
 use crate::jsonrpc_index::CoinIndexKey2;
@@ -1211,6 +1212,8 @@ pub struct AuthorityState {
     pub overload_info: AuthorityOverloadInfo,
 
     pub validator_tx_finalizer: Option<Arc<ValidatorTxFinalizer<NetworkAuthorityClient>>>,
+
+    pub cache_update_handler: CacheUpdateHandler,
 }
 
 /// The authority state encapsulates all state, drives execution, and ensures safety.
@@ -3566,6 +3569,7 @@ impl AuthorityState {
             config,
             overload_info: AuthorityOverloadInfo::default(),
             validator_tx_finalizer,
+            cache_update_handler: CacheUpdateHandler::new(),
         });
 
         // Start a task to execute ready certificates.
