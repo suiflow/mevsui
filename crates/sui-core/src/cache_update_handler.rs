@@ -70,6 +70,18 @@ impl CacheUpdateHandler {
 
         let mut connection_guard = self.connection.lock();
         if let Some(stream) = connection_guard.as_mut() {
+            // Write length prefix as u32 in little endian
+            let len = serialized.len() as u32;
+            if let Err(e) = stream.write_all(&len.to_le_bytes()) {
+                error!(
+                    "Error writing length prefix to client, resetting connection: {}",
+                    e
+                );
+                *connection_guard = None;
+                return;
+            }
+
+            // Write payload
             if let Err(e) = stream.write_all(&serialized) {
                 error!("Error writing to client, resetting connection: {}", e);
                 *connection_guard = None;
