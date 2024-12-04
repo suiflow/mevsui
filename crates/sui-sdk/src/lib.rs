@@ -77,6 +77,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
+use ipc_client::IpcClient;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
@@ -102,6 +103,7 @@ use crate::error::{Error, SuiRpcResult};
 
 pub mod apis;
 pub mod error;
+mod ipc_client;
 pub mod json_rpc_error;
 pub mod sui_client_config;
 pub mod wallet_context;
@@ -142,6 +144,7 @@ pub struct SuiClientBuilder {
     ws_url: Option<String>,
     ws_ping_interval: Option<Duration>,
     basic_auth: Option<(String, String)>,
+    ipc_path: Option<String>,
 }
 
 impl Default for SuiClientBuilder {
@@ -152,6 +155,7 @@ impl Default for SuiClientBuilder {
             ws_url: None,
             ws_ping_interval: None,
             basic_auth: None,
+            ipc_path: None,
         }
     }
 }
@@ -172,6 +176,12 @@ impl SuiClientBuilder {
     /// Set the WebSocket URL for the Sui network
     pub fn ws_url(mut self, url: impl AsRef<str>) -> Self {
         self.ws_url = Some(url.as_ref().to_string());
+        self
+    }
+
+    /// Set the IPC path for the Sui network
+    pub fn ipc_path(mut self, path: impl AsRef<str>) -> Self {
+        self.ipc_path = Some(path.as_ref().to_string());
         self
     }
 
@@ -244,6 +254,16 @@ impl SuiClientBuilder {
             None
         };
 
+        let ipc = if let Some(ref ipc_path) = self.ipc_path {
+            Some(
+                IpcClient::new(ipc_path)
+                    .await
+                    .map_err(|e| error::Error::IpcError(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+
         let http = HttpClientBuilder::default()
             .max_request_body_size(2 << 30)
             .max_concurrent_requests(self.max_concurrent_requests)
@@ -253,7 +273,12 @@ impl SuiClientBuilder {
 
         let info = Self::get_server_info(&http, &ws).await?;
 
-        let rpc = RpcClient { http, ws, info };
+        let rpc = RpcClient {
+            http,
+            ws,
+            ipc,
+            info,
+        };
         let api = Arc::new(rpc);
         let read_api = Arc::new(ReadApi::new(api.clone()));
         let quorum_driver_api = QuorumDriverApi::new(api.clone());
@@ -441,6 +466,7 @@ pub struct SuiClient {
 pub(crate) struct RpcClient {
     http: HttpClient,
     ws: Option<WsClient>,
+    ipc: Option<IpcClient>,
     info: ServerInfo,
 }
 
