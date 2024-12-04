@@ -21,7 +21,7 @@ use sui_json_rpc::transaction_execution_api::TransactionExecutionApi;
 use sui_json_rpc_api::JsonRpcMetrics;
 
 const REQUEST_MAX_SIZE: usize = 10 * 1024 * 1024;
-const IPC_PATH: &str = "/tmp/sui-mainnet.ipc";
+const IPC_PATH: &str = "/home/ubuntu/sui/sui-mainnet.ipc";
 
 pub struct IpcServer {
     listener: LocalSocketListener,
