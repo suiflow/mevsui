@@ -1,13 +1,16 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use sui_types::base_types::ObjectRef;
+use sui_types::crypto::EmptySignInfo;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI, TransactionEvents};
 use sui_types::inner_temporary_store::{InnerTemporaryStore, WrittenObjects};
+use sui_types::message_envelope::Envelope;
 use sui_types::storage::{MarkerValue, ObjectKey};
-use sui_types::transaction::{TransactionDataAPI, VerifiedTransaction};
+use sui_types::transaction::{SenderSignedData, TransactionDataAPI, VerifiedTransaction};
 
 /// TransactionOutputs
 pub struct TransactionOutputs {
@@ -21,6 +24,59 @@ pub struct TransactionOutputs {
     pub locks_to_delete: Vec<ObjectRef>,
     pub new_locks_to_init: Vec<ObjectRef>,
     pub written: WrittenObjects,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SerializedTransactionOutputs {
+    transaction: Envelope<SenderSignedData, EmptySignInfo>,
+    effects: TransactionEffects,
+    events: TransactionEvents,
+    markers: Vec<(ObjectKey, MarkerValue)>,
+    wrapped: Vec<ObjectKey>,
+    deleted: Vec<ObjectKey>,
+    locks_to_delete: Vec<ObjectRef>,
+    new_locks_to_init: Vec<ObjectRef>,
+    written: WrittenObjects,
+}
+
+impl Serialize for TransactionOutputs {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        SerializedTransactionOutputs {
+            transaction: self.transaction.serializable_ref().inner().clone(),
+            effects: self.effects.clone(),
+            events: self.events.clone(),
+            markers: self.markers.clone(),
+            wrapped: self.wrapped.clone(),
+            deleted: self.deleted.clone(),
+            locks_to_delete: self.locks_to_delete.clone(),
+            new_locks_to_init: self.new_locks_to_init.clone(),
+            written: self.written.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransactionOutputs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let serialized = SerializedTransactionOutputs::deserialize(deserializer)?;
+        Ok(TransactionOutputs {
+            transaction: Arc::new(VerifiedTransaction::new_unchecked(serialized.transaction)),
+            effects: serialized.effects,
+            events: serialized.events,
+            markers: serialized.markers,
+            wrapped: serialized.wrapped,
+            deleted: serialized.deleted,
+            locks_to_delete: serialized.locks_to_delete,
+            new_locks_to_init: serialized.new_locks_to_init,
+            written: serialized.written,
+        })
+    }
 }
 
 impl TransactionOutputs {

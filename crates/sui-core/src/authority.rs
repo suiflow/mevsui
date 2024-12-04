@@ -1987,6 +1987,7 @@ impl AuthorityState {
             effects.clone(),
             inner_temporary_store,
         );
+        // Here update cache
         self.get_cache_writer()
             .write_transaction_outputs(epoch_store.epoch(), transaction_outputs.into())
             .await?;
