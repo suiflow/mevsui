@@ -145,6 +145,7 @@ pub struct SuiClientBuilder {
     ws_ping_interval: Option<Duration>,
     basic_auth: Option<(String, String)>,
     ipc_path: Option<String>,
+    ipc_pool_size: usize,
 }
 
 impl Default for SuiClientBuilder {
@@ -156,6 +157,7 @@ impl Default for SuiClientBuilder {
             ws_ping_interval: None,
             basic_auth: None,
             ipc_path: None,
+            ipc_pool_size: 50,
         }
     }
 }
@@ -182,6 +184,12 @@ impl SuiClientBuilder {
     /// Set the IPC path for the Sui network
     pub fn ipc_path(mut self, path: impl AsRef<str>) -> Self {
         self.ipc_path = Some(path.as_ref().to_string());
+        self
+    }
+
+    /// Set the IPC pool size
+    pub fn ipc_pool_size(mut self, pool_size: usize) -> Self {
+        self.ipc_pool_size = pool_size;
         self
     }
 
@@ -256,7 +264,7 @@ impl SuiClientBuilder {
 
         let ipc = if let Some(ref ipc_path) = self.ipc_path {
             Some(
-                IpcClient::new(ipc_path)
+                IpcClient::new(ipc_path, self.ipc_pool_size)
                     .await
                     .map_err(|e| error::Error::IpcError(e.to_string()))?,
             )
