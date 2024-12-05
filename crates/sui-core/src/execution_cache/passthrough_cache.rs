@@ -287,6 +287,11 @@ impl ExecutionCacheWrite for PassthroughCache {
             .acquire_transaction_locks(epoch_store, owned_input_objects, transaction)
             .boxed()
     }
+
+    fn update_package_cache<'a>(&'a self, _: &'a [(ObjectID, Object)]) -> BoxFuture<'a, SuiResult> {
+        // noop
+        async move { Ok(()) }.boxed()
+    }
 }
 
 impl AccumulatorStore for PassthroughCache {

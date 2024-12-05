@@ -645,6 +645,11 @@ pub trait ExecutionCacheWrite: Send + Sync {
         owned_input_objects: &'a [ObjectRef],
         transaction: VerifiedSignedTransaction,
     ) -> BoxFuture<'a, SuiResult>;
+
+    fn update_package_cache<'a>(
+        &'a self,
+        package_updates: &'a [(ObjectID, Object)],
+    ) -> BoxFuture<'a, SuiResult>;
 }
 
 pub trait CheckpointCache: Send + Sync {
