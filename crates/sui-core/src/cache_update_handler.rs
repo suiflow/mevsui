@@ -60,6 +60,10 @@ impl CacheUpdateHandler {
     }
 
     pub async fn update_cache(&self, packages: Vec<(ObjectID, Object)>) {
+        if packages.is_empty() {
+            return;
+        }
+
         let serialized = match bincode::serialize(&packages) {
             Ok(serialized) => serialized,
             Err(e) => {
