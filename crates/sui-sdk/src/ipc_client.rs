@@ -18,16 +18,16 @@ const REQUEST_MAX_SIZE: usize = 10 * 1024 * 1024;
 #[derive(Clone)]
 pub struct IpcClient {
     path: String,
-    inner: Arc<Mutex<Option<IpcClientInner>>>,
+    conn: Arc<Mutex<Option<Conn>>>,
 }
 
-struct IpcClientInner {
+struct Conn {
     sender: SendHalf,
     recver: BufReader<RecvHalf>,
     buffer: String,
 }
 
-impl IpcClientInner {
+impl Conn {
     async fn connect(path: &str) -> Result<Self> {
         let name = path.to_ns_name::<GenericNamespaced>()?;
         let conn = Stream::connect(name).await?;
@@ -43,10 +43,10 @@ impl IpcClientInner {
 
 impl IpcClient {
     pub async fn new(path: &str) -> Result<Self> {
-        let inner = IpcClientInner::connect(path).await?;
+        let inner = Conn::connect(path).await?;
         Ok(Self {
             path: path.to_string(),
-            inner: Arc::new(Mutex::new(Some(inner))),
+            conn: Arc::new(Mutex::new(Some(inner))),
         })
     }
 
@@ -75,9 +75,9 @@ impl IpcClient {
         let override_objects_b64 = Base64::from_bytes(&bcs::to_bytes(&override_objects)?);
         let request = format!("{};{}\n", tx_b64.encoded(), override_objects_b64.encoded());
 
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.conn.lock().await;
         let inner = inner.as_mut().context("Connection not established")?;
-        let IpcClientInner {
+        let Conn {
             sender,
             recver,
             buffer,
@@ -93,10 +93,10 @@ impl IpcClient {
 
     #[inline]
     async fn validate_connection(&self) -> Result<()> {
-        let mut inner_lock = self.inner.lock().await;
+        let mut inner_lock = self.conn.lock().await;
         if inner_lock.is_none() {
             tracing::warn!("Reconnecting to IPC server");
-            let inner = IpcClientInner::connect(&self.path).await?;
+            let inner = Conn::connect(&self.path).await?;
             *inner_lock = Some(inner);
         }
         Ok(())
@@ -104,7 +104,7 @@ impl IpcClient {
 
     #[inline]
     async fn disconnect(&self) {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.conn.lock().await;
         *inner = None;
     }
 }
