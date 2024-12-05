@@ -15,7 +15,7 @@ const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
 #[derive(Debug)]
 pub struct CacheUpdateHandler {
     socket_path: PathBuf,
-    connection: Arc<Mutex<Option<UnixStream>>>,
+    connections: Arc<Mutex<Vec<UnixStream>>>,
     running: Arc<AtomicBool>,
 }
 
@@ -28,10 +28,10 @@ impl CacheUpdateHandler {
         let listener = UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
         listener.set_nonblocking(true).unwrap();
 
-        let connection = Arc::new(Mutex::new(None));
+        let connections = Arc::new(Mutex::new(Vec::new()));
         let running = Arc::new(AtomicBool::new(true));
 
-        let connection_clone = connection.clone();
+        let connections_clone = connections.clone();
         let running_clone = running.clone();
 
         // Spawn connection acceptor task
@@ -40,7 +40,7 @@ impl CacheUpdateHandler {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
                         info!("New client connected to cache update socket");
-                        *connection_clone.lock() = Some(stream);
+                        connections_clone.lock().push(stream);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -54,7 +54,7 @@ impl CacheUpdateHandler {
 
         Self {
             socket_path,
-            connection,
+            connections,
             running,
         }
     }
@@ -68,25 +68,23 @@ impl CacheUpdateHandler {
             }
         };
 
-        let mut connection_guard = self.connection.lock();
-        if let Some(stream) = connection_guard.as_mut() {
-            // Write length prefix as u32 in little endian
-            let len = serialized.len() as u32;
-            if let Err(e) = stream.write_all(&len.to_le_bytes()) {
-                error!(
-                    "Error writing length prefix to client, resetting connection: {}",
-                    e
-                );
-                *connection_guard = None;
-                return;
-            }
+        let mut connections = self.connections.lock();
+        let len = serialized.len() as u32;
+        let len_bytes = len.to_le_bytes();
 
-            // Write payload
-            if let Err(e) = stream.write_all(&serialized) {
-                error!("Error writing to client, resetting connection: {}", e);
-                *connection_guard = None;
+        // Remove dead connections while sending updates
+        connections.retain(|mut stream| {
+            // Try to write length prefix and payload
+            if let Err(e) = stream.write_all(&len_bytes) {
+                error!("Error writing length prefix to client: {}", e);
+                return false;
             }
-        }
+            if let Err(e) = stream.write_all(&serialized) {
+                error!("Error writing to client: {}", e);
+                return false;
+            }
+            true
+        });
     }
 }
 
