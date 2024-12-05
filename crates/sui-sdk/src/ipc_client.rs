@@ -87,10 +87,9 @@ impl IpcClient {
         buffer.clear();
         recver.read_line(buffer).await?;
 
-        tracing::info!("Received response: {}", buffer.trim());
-        let response: std::result::Result<DryRunTransactionBlockResponse, String> =
+        let response: DryRunTransactionBlockResponse =
             bcs::from_bytes(&Base64::decode(buffer.trim())?).context("Invalid response")?;
-        response.map_err(|e| anyhow::anyhow!(e))
+        Ok(response)
     }
 
     #[inline]
