@@ -13,6 +13,7 @@ use arc_swap::ArcSwap;
 use fastcrypto_zkp::bn254::zk_login::JwkId;
 use fastcrypto_zkp::bn254::zk_login::OIDCProvider;
 use futures::TryFutureExt;
+use ipc_server::build_ipc_server;
 use prometheus::Registry;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -140,6 +141,7 @@ use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
 
 pub mod admin;
 mod handle;
+mod ipc_server;
 pub mod metrics;
 
 pub struct ValidatorComponents {
@@ -228,6 +230,7 @@ pub struct SuiNode {
     validator_components: Mutex<Option<ValidatorComponents>>,
     /// The http server responsible for serving JSON-RPC as well as the experimental rest service
     _http_server: Option<tokio::task::JoinHandle<()>>,
+    _ipc_server: Option<tokio::task::JoinHandle<()>>,
     state: Arc<AuthorityState>,
     transaction_orchestrator: Option<Arc<TransactiondOrchestrator<NetworkAuthorityClient>>>,
     registry_service: RegistryService,
@@ -757,6 +760,16 @@ impl SuiNode {
             None
         };
 
+        let metrics = Arc::new(JsonRpcMetrics::new(&prometheus_registry));
+
+        let ipc_server = build_ipc_server(
+            state.clone(),
+            &transaction_orchestrator.clone(),
+            &config,
+            metrics.clone(),
+        )
+        .await?;
+
         let http_server = build_http_server(
             state.clone(),
             state_sync_store,
@@ -765,6 +778,7 @@ impl SuiNode {
             &prometheus_registry,
             custom_rpc_runtime,
             software_version,
+            metrics,
         )
         .await?;
 
@@ -829,6 +843,7 @@ impl SuiNode {
             config,
             validator_components: Mutex::new(validator_components),
             _http_server: http_server,
+            _ipc_server: ipc_server,
             state,
             transaction_orchestrator,
             registry_service,
@@ -1996,6 +2011,7 @@ pub async fn build_http_server(
     prometheus_registry: &Registry,
     _custom_runtime: Option<Handle>,
     software_version: &'static str,
+    metrics: Arc<JsonRpcMetrics>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
@@ -2014,7 +2030,6 @@ pub async fn build_http_server(
 
         let kv_store = build_kv_store(&state, config, prometheus_registry)?;
 
-        let metrics = Arc::new(JsonRpcMetrics::new(prometheus_registry));
         server.register_module(ReadApi::new(
             state.clone(),
             kv_store.clone(),
