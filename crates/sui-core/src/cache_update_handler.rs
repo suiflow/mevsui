@@ -2,7 +2,6 @@ use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::{UnixListener, UnixStream};
 
 use sui_types::committee::EpochId;
@@ -15,19 +14,16 @@ const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
 #[derive(Debug)]
 pub struct CacheUpdateHandler {
     socket_path: PathBuf,
-    connections: Arc<Mutex<Vec<BufWriter<UnixStream>>>>,
+    connections: Arc<Mutex<Vec<UnixStream>>>,
     running: Arc<AtomicBool>,
 }
 
 impl CacheUpdateHandler {
     pub fn new() -> Self {
         let socket_path = PathBuf::from(SOCKET_PATH);
-        // Remove existing socket file if it exists
         let _ = std::fs::remove_file(&socket_path);
 
-        let listener = tokio::runtime::Handle::current().block_on(async {
-            UnixListener::bind(&socket_path).expect("Failed to bind Unix socket")
-        });
+        let listener = UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
 
         let connections = Arc::new(Mutex::new(Vec::new()));
         let running = Arc::new(AtomicBool::new(true));
@@ -41,11 +37,10 @@ impl CacheUpdateHandler {
                 match listener.accept().await {
                     Ok((stream, _addr)) => {
                         info!("New client connected to cache update socket");
-                        connections_clone.lock().push(BufWriter::new(stream));
+                        connections_clone.lock().await.push(stream);
                     }
                     Err(e) => {
                         error!("Error accepting connection: {}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
                 }
             }
@@ -67,14 +62,15 @@ impl CacheUpdateHandler {
             }
         };
 
-        let mut connections = self.connections.lock();
         let len = serialized.len() as u32;
         let len_bytes = len.to_le_bytes();
 
+        let mut connections = self.connections.lock().await;
+
         // Remove dead connections while sending updates
-        connections.retain_mut(|stream| {
-            // Try to write length prefix and payload
-            let write_fut = async {
+        connections.retain(|stream| {
+            let mut stream = stream.clone();
+            let fut = async move {
                 if let Err(e) = stream.write_all(&len_bytes).await {
                     error!("Error writing length prefix to client: {}", e);
                     return false;
@@ -83,13 +79,9 @@ impl CacheUpdateHandler {
                     error!("Error writing to client: {}", e);
                     return false;
                 }
-                if let Err(e) = stream.flush().await {
-                    error!("Error flushing client stream: {}", e);
-                    return false;
-                }
                 true
             };
-            tokio::runtime::Handle::current().block_on(write_fut)
+            tokio::spawn(fut)
         });
     }
 }
