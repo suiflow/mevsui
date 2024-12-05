@@ -19,6 +19,7 @@ use sui_core::transaction_orchestrator::TransactiondOrchestrator;
 use sui_core::{authority::AuthorityState, authority_client::NetworkAuthorityClient};
 use sui_json_rpc::transaction_execution_api::TransactionExecutionApi;
 use sui_json_rpc_api::JsonRpcMetrics;
+use tokio::time::{sleep, Duration};
 
 const REQUEST_MAX_SIZE: usize = 10 * 1024 * 1024;
 const IPC_PATH: &str = "/home/ubuntu/sui/sui-mainnet.ipc";
@@ -69,7 +70,7 @@ impl IpcServer {
             tokio::select! {
                 recv_len = recver.read_line(&mut buffer) => {
                     if recv_len? == 0 {
-                        continue;
+                        break;
                     }
                     debug!(%buffer, "IpcServer received request");
 
@@ -80,12 +81,14 @@ impl IpcServer {
                     let override_objects = Base64::try_from(override_objects.to_string())?;
 
                     let resp = api.dry_run_transaction_block_override(tx, override_objects).await.map_err(|e| e.to_string());
+                    info!(elapsed = ?timer.elapsed(), ?resp, "IpcServer sending response");
                     let resp_b64 = format!("{}\n", Base64::from_bytes(&bcs::to_bytes(&resp)?).encoded());
-                    info!(elapsed = ?timer.elapsed(), %resp_b64, "IpcServer sending response");
 
                     sender.write_all(resp_b64.as_bytes()).await?;
                 }
-                else => break,
+                else => {
+                    sleep(Duration::from_millis(10)).await;
+                },
             }
         }
         Ok(())
