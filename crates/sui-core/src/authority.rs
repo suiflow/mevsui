@@ -2135,6 +2135,7 @@ impl AuthorityState {
         });
 
         let elapsed = prepare_certificate_start_time.elapsed().as_micros() as f64;
+        info!("elapsed={:.2}us", elapsed);
         if elapsed > 0.0 {
             self.metrics
                 .prepare_cert_gas_latency_ratio
