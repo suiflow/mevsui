@@ -4,7 +4,7 @@
 use std::fs;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Context;
 use fastcrypto::encoding::Base64;
 use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
@@ -29,7 +29,7 @@ pub struct IpcServer {
 }
 
 impl IpcServer {
-    pub async fn new(path: &str, api: Arc<TransactionExecutionApi>) -> Result<Self> {
+    pub async fn new(path: &str, api: Arc<TransactionExecutionApi>) -> anyhow::Result<Self> {
         let _ = fs::remove_file(path);
 
         let name = path.to_ns_name::<GenericNamespaced>()?;
@@ -39,7 +39,7 @@ impl IpcServer {
         Ok(Self { listener, api })
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self) -> anyhow::Result<()> {
         loop {
             let conn = match self.listener.accept().await {
                 Ok(c) => c,
@@ -58,7 +58,7 @@ impl IpcServer {
         }
     }
 
-    async fn handle_conn(api: Arc<TransactionExecutionApi>, conn: Stream) -> Result<()> {
+    async fn handle_conn(api: Arc<TransactionExecutionApi>, conn: Stream) -> anyhow::Result<()> {
         let (recver, sender) = conn.split();
         let mut recver = BufReader::new(recver);
         let mut sender = sender;
@@ -79,7 +79,7 @@ impl IpcServer {
                     let tx = Base64::try_from(tx.to_string())?;
                     let override_objects = Base64::try_from(override_objects.to_string())?;
 
-                    let resp = api.dry_run_transaction_block_override(tx, override_objects).await.map_err(|e| anyhow!(e))?;
+                    let resp = api.dry_run_transaction_block_override(tx, override_objects).await.map_err(|e| e.to_string());
                     let resp_b64 = format!("{}\n", Base64::from_bytes(&bcs::to_bytes(&resp)?).encoded());
                     info!(elapsed = ?timer.elapsed(), %resp_b64, "IpcServer sending response");
 
@@ -97,7 +97,7 @@ pub async fn build_ipc_server(
     transaction_orchestrator: &Option<Arc<TransactiondOrchestrator<NetworkAuthorityClient>>>,
     config: &NodeConfig,
     metrics: Arc<JsonRpcMetrics>,
-) -> Result<Option<tokio::task::JoinHandle<()>>> {
+) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
         return Ok(None);
