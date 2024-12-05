@@ -73,6 +73,7 @@ impl IpcServer {
                     }
                     debug!(%buffer, "IpcServer received request");
 
+                    let timer = std::time::Instant::now();
                     // {tx_b64};{override_objects_b64}\n
                     let (tx, override_objects) = buffer.trim().split_once(';').context("Invalid request")?;
                     let tx = Base64::try_from(tx.to_string())?;
@@ -80,7 +81,7 @@ impl IpcServer {
 
                     let resp = api.dry_run_transaction_block_override(tx, override_objects).await.map_err(|e| anyhow!(e))?;
                     let resp_b64 = format!("{}\n", Base64::from_bytes(&bcs::to_bytes(&resp)?).encoded());
-                    debug!(%resp_b64, "IpcServer sending response");
+                    info!(elapsed = ?timer.elapsed(), %resp_b64, "IpcServer sending response");
 
                     sender.write_all(resp_b64.as_bytes()).await?;
                 }

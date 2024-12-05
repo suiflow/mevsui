@@ -96,6 +96,7 @@ impl IpcClient {
     async fn validate_connection(&self) -> Result<()> {
         let mut inner_lock = self.inner.lock().await;
         if inner_lock.is_none() {
+            tracing::warn!("Reconnecting to IPC server");
             let inner = IpcClientInner::connect(&self.path).await?;
             *inner_lock = Some(inner);
         }
