@@ -87,7 +87,7 @@ impl IpcClient {
         buffer.clear();
         recver.read_line(buffer).await?;
 
-        let response: DryRunTransactionBlockResponse =
+        let response =
             bcs::from_bytes(&Base64::decode(buffer.trim())?).context("Invalid response")?;
         Ok(response)
     }

@@ -81,11 +81,11 @@ impl IpcServer {
                     let tx = Base64::try_from(tx.to_string())?;
                     let override_objects = Base64::try_from(override_objects.to_string())?;
 
-                    let resp: DryRunTransactionBlockResponse = api.dry_run_transaction_block_override(tx, override_objects).await?;
-                    info!(elapsed = ?timer.elapsed(), "IpcServer processed request");
-                    let resp_b64 = format!("{}\n", Base64::from_bytes(&bcs::to_bytes(&resp)?).encoded());
+                    let resp = api.dry_run_transaction_block_override(tx, override_objects).await?;
+                    info!(elapsed = ?timer.elapsed(), "IPC dry_run_transaction_block_override");
+                    let resp_b64 = Base64::from_bytes(&bcs::to_bytes::<DryRunTransactionBlockResponse>(&resp)?);
 
-                    sender.write_all(resp_b64.as_bytes()).await?;
+                    sender.write_all(format!("{}\n", resp_b64.encoded()).as_bytes()).await?;
                 }
                 else => {
                     sleep(Duration::from_millis(10)).await;
