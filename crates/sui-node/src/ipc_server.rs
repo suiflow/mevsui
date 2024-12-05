@@ -81,7 +81,7 @@ impl IpcServer {
 
                     let timer = std::time::Instant::now();
                     let resp = api.dry_run_transaction_block_override(tx, override_objects).await?;
-                    info!(elapsed = ?timer.elapsed(), "IPC dry_run");
+                    debug!(elapsed = ?timer.elapsed(), "IPC dry_run");
 
                     let resp_json = format!("{}\n",serde_json::to_string(&resp)?);
                     sender.write_all(resp_json.as_bytes()).await?;
