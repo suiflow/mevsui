@@ -11,7 +11,6 @@ use interprocess::local_socket::{
     GenericNamespaced, ListenerOptions,
 };
 use sui_json_rpc_api::WriteApiServer;
-use sui_json_rpc_types::DryRunTransactionBlockResponse;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, error, info};
 
@@ -75,17 +74,17 @@ impl IpcServer {
                     }
                     debug!(%buffer, "IpcServer received request");
 
-                    let timer = std::time::Instant::now();
                     // {tx_b64};{override_objects_b64}\n
                     let (tx, override_objects) = buffer.trim().split_once(';').context("Invalid request")?;
                     let tx = Base64::try_from(tx.to_string())?;
                     let override_objects = Base64::try_from(override_objects.to_string())?;
 
+                    let timer = std::time::Instant::now();
                     let resp = api.dry_run_transaction_block_override(tx, override_objects).await?;
-                    info!(elapsed = ?timer.elapsed(), "IPC dry_run_transaction_block_override");
-                    let resp_b64 = Base64::from_bytes(&bcs::to_bytes::<DryRunTransactionBlockResponse>(&resp)?);
+                    info!(elapsed = ?timer.elapsed(), "IPC dry_run");
 
-                    sender.write_all(format!("{}\n", resp_b64.encoded()).as_bytes()).await?;
+                    let resp_json = format!("{}\n",serde_json::to_string(&resp)?);
+                    sender.write_all(resp_json.as_bytes()).await?;
                 }
                 else => {
                     sleep(Duration::from_millis(10)).await;

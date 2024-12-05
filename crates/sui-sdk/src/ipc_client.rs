@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use fastcrypto::encoding::{Base64, Encoding};
+use fastcrypto::encoding::Base64;
 use interprocess::local_socket::{
     tokio::{prelude::*, RecvHalf, SendHalf, Stream},
     GenericNamespaced,
@@ -87,8 +87,7 @@ impl IpcClient {
         buffer.clear();
         recver.read_line(buffer).await?;
 
-        let response =
-            bcs::from_bytes(&Base64::decode(buffer.trim())?).context("Invalid response")?;
+        let response: DryRunTransactionBlockResponse = serde_json::from_str(buffer.trim())?;
         Ok(response)
     }
 
