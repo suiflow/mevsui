@@ -1990,13 +1990,21 @@ impl AuthorityState {
             effects.clone(),
             inner_temporary_store,
         ));
+
+        let mut package_updates = Vec::new();
+        for (id, object) in transaction_outputs.written.iter() {
+            if object.is_package() {
+                package_updates.push((*id, object.clone()));
+            }
+        }
+
         // Here update cache
         self.get_cache_writer()
-            .write_transaction_outputs(epoch_store.epoch(), transaction_outputs.clone())
+            .write_transaction_outputs(epoch_store.epoch(), transaction_outputs)
             .await?;
 
         self.cache_update_handler
-            .update_cache(epoch_store.epoch(), transaction_outputs)
+            .update_cache(package_updates)
             .await;
 
         if certificate.transaction_data().is_end_of_epoch_tx() {

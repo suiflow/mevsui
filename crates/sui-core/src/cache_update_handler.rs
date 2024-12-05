@@ -4,14 +4,13 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use sui_types::base_types::ObjectID;
+use sui_types::object::Object;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
-use sui_types::committee::EpochId;
 use tracing::{error, info};
-
-use crate::transaction_outputs::TransactionOutputs;
 
 const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
 
@@ -60,8 +59,8 @@ impl CacheUpdateHandler {
         }
     }
 
-    pub async fn update_cache(&self, epoch_id: EpochId, tx_outputs: Arc<TransactionOutputs>) {
-        let serialized = match bincode::serialize(&(epoch_id, tx_outputs)) {
+    pub async fn update_cache(&self, packages: Vec<(ObjectID, Object)>) {
+        let serialized = match bincode::serialize(&packages) {
             Ok(serialized) => serialized,
             Err(e) => {
                 error!("Error serializing cache update: {}", e);
