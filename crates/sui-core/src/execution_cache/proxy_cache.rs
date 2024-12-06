@@ -246,6 +246,13 @@ impl ExecutionCacheWrite for ProxyCache {
             signed_transaction
         ))
     }
+
+    fn update_package_cache<'a>(
+        &'a self,
+        package_updates: &'a [(ObjectID, Object)],
+    ) -> BoxFuture<'a, SuiResult> {
+        delegate_method!(self.update_package_cache(package_updates))
+    }
 }
 
 impl AccumulatorStore for ProxyCache {

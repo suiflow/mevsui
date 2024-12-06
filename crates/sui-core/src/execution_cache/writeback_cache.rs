@@ -769,6 +769,14 @@ impl WritebackCache {
         &self.store
     }
 
+    async fn update_package_cache(&self, package_updates: &[(ObjectID, Object)]) -> SuiResult {
+        for (id, object) in package_updates {
+            self.packages
+                .insert(*id, PackageObject::new(object.clone()));
+        }
+        Ok(())
+    }
+
     #[instrument(level = "debug", skip_all)]
     async fn write_transaction_outputs(
         &self,
@@ -1855,6 +1863,13 @@ impl ExecutionCacheWrite for WritebackCache {
         tx_outputs: Arc<TransactionOutputs>,
     ) -> BoxFuture<'_, ()> {
         WritebackCache::write_transaction_outputs(self, epoch_id, tx_outputs).boxed()
+    }
+
+    fn update_package_cache<'a>(
+        &'a self,
+        package_updates: &'a [(ObjectID, Object)],
+    ) -> BoxFuture<'_, SuiResult> {
+        WritebackCache::update_package_cache(self, package_updates).boxed()
     }
 }
 

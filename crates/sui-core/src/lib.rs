@@ -8,6 +8,7 @@ pub mod authority;
 pub mod authority_aggregator;
 pub mod authority_client;
 pub mod authority_server;
+pub mod cache_update_handler;
 pub mod checkpoints;
 pub mod consensus_adapter;
 pub mod consensus_handler;
@@ -42,7 +43,7 @@ pub mod traffic_controller;
 mod transaction_input_loader;
 mod transaction_manager;
 pub mod transaction_orchestrator;
-mod transaction_outputs;
+pub mod transaction_outputs;
 pub mod validator_tx_finalizer;
 pub mod verify_indexes;
 
