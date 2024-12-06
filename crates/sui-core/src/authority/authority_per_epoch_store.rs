@@ -4,7 +4,7 @@
 use arc_swap::ArcSwapOption;
 use enum_dispatch::enum_dispatch;
 use fastcrypto::groups::bls12381;
-use fastcrypto_tbls::dkg;
+use fastcrypto_tbls::dkg_v1;
 use fastcrypto_tbls::nodes::PartyId;
 use fastcrypto_zkp::bn254::zk_login::{JwkId, OIDCProvider, JWK};
 use fastcrypto_zkp::bn254::zk_login_api::ZkLoginEnv;
@@ -600,7 +600,7 @@ pub struct AuthorityEpochTables {
     pub(crate) dkg_confirmations: DBMap<PartyId, Vec<u8>>,
     /// Records the final output of DKG after completion, including the public VSS key and
     /// any local private shares.
-    pub(crate) dkg_output: DBMap<u64, dkg::Output<PkG, EncG>>,
+    pub(crate) dkg_output: DBMap<u64, dkg_v1::Output<PkG, EncG>>,
     /// This table is no longer used (can be removed when DBMap supports removing tables)
     #[allow(dead_code)]
     randomness_rounds_pending: DBMap<RandomnessRound, ()>,
@@ -749,7 +749,7 @@ impl AuthorityEpochTables {
 
     pub fn write_transaction_locks(
         &self,
-        transaction: VerifiedSignedTransaction,
+        signed_transaction: Option<VerifiedSignedTransaction>,
         locks_to_write: impl Iterator<Item = (ObjectRef, LockDetails)>,
     ) -> SuiResult {
         let mut batch = self.owned_object_locked_transactions.batch();
@@ -757,10 +757,15 @@ impl AuthorityEpochTables {
             &self.owned_object_locked_transactions,
             locks_to_write.map(|(obj_ref, lock)| (obj_ref, LockDetailsWrapper::from(lock))),
         )?;
-        batch.insert_batch(
-            &self.signed_transactions,
-            std::iter::once((*transaction.digest(), transaction.serializable_ref())),
-        )?;
+        if let Some(signed_transaction) = signed_transaction {
+            batch.insert_batch(
+                &self.signed_transactions,
+                std::iter::once((
+                    *signed_transaction.digest(),
+                    signed_transaction.serializable_ref(),
+                )),
+            )?;
+        }
         batch.write()?;
         Ok(())
     }
@@ -769,26 +774,46 @@ impl AuthorityEpochTables {
         &self,
         current_round: Round,
         for_randomness: bool,
-        per_commit_budget: u64,
+        protocol_config: &ProtocolConfig,
         transactions: &[VerifiedSequencedConsensusTransaction],
     ) -> SuiResult<impl IntoIterator<Item = (ObjectID, u64)>> {
-        let table = if for_randomness {
-            &self.congestion_control_randomness_object_debts
+        let default_per_commit_budget = protocol_config
+            .max_accumulated_txn_cost_per_object_in_mysticeti_commit_as_option()
+            .unwrap_or(0);
+        let (table, per_commit_budget) = if for_randomness {
+            (
+                &self.congestion_control_randomness_object_debts,
+                protocol_config
+                    .max_accumulated_randomness_txn_cost_per_object_in_mysticeti_commit_as_option()
+                    .unwrap_or(default_per_commit_budget),
+            )
         } else {
-            &self.congestion_control_object_debts
+            (
+                &self.congestion_control_object_debts,
+                default_per_commit_budget,
+            )
         };
+
         let shared_input_object_ids: BTreeSet<_> = transactions
             .iter()
-            .filter_map(|tx| {
-                if let SequencedConsensusTransactionKind::External(ConsensusTransaction {
+            .filter_map(|tx| match &tx.0.transaction {
+                SequencedConsensusTransactionKind::External(ConsensusTransaction {
                     kind: ConsensusTransactionKind::CertifiedTransaction(tx),
                     ..
-                }) = &tx.0.transaction
-                {
-                    Some(tx.shared_input_objects().map(|obj| obj.id))
-                } else {
-                    None
-                }
+                }) => Some(
+                    tx.shared_input_objects()
+                        .map(|obj| obj.id)
+                        .collect::<Vec<_>>(),
+                ),
+                SequencedConsensusTransactionKind::External(ConsensusTransaction {
+                    kind: ConsensusTransactionKind::UserTransaction(tx),
+                    ..
+                }) => Some(
+                    tx.shared_input_objects()
+                        .map(|obj| obj.id)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
             })
             .flatten()
             .collect();
@@ -1468,14 +1493,16 @@ impl AuthorityPerEpochStore {
         &self,
         checkpoints: Vec<CheckpointSequenceNumber>,
     ) -> SuiResult<Vec<Accumulator>> {
-        self.checkpoint_state_notify_read
-            .read(&checkpoints, |checkpoints| -> SuiResult<_> {
-                Ok(self
-                    .tables()?
+        let tables = self.tables()?;
+        Ok(self
+            .checkpoint_state_notify_read
+            .read(&checkpoints, |checkpoints| {
+                tables
                     .state_hash_by_checkpoint
-                    .multi_get(checkpoints)?)
+                    .multi_get(checkpoints)
+                    .expect("db error")
             })
-            .await
+            .await)
     }
 
     pub async fn notify_read_running_root(
@@ -1686,7 +1713,7 @@ impl AuthorityPerEpochStore {
                     // Note: we don't actually need to read from the transaction here, as no writer
                     // can update object_store until after get_or_init_next_object_versions
                     // completes.
-                    match cache_reader.get_object(id).expect("read cannot fail") {
+                    match cache_reader.get_object(id) {
                         Some(obj) => (*id, obj.version()),
                         None => (*id, *initial_version),
                     }
@@ -1959,10 +1986,10 @@ impl AuthorityPerEpochStore {
         self.tables()?
             .pending_consensus_transactions
             .multi_remove(keys)?;
-        // TODO: lock once for all remove() calls.
+        let mut pending_consensus_certificates = self.pending_consensus_certificates.write();
         for key in keys {
-            if let ConsensusTransactionKey::Certificate(cert) = key {
-                self.pending_consensus_certificates.write().remove(cert);
+            if let ConsensusTransactionKey::Certificate(digest) = key {
+                pending_consensus_certificates.remove(digest);
             }
         }
         Ok(())
@@ -1991,17 +2018,6 @@ impl AuthorityPerEpochStore {
             .expect("deferred transactions should not be read past end of epoch")
             .deferred_transactions
             .is_empty()
-    }
-
-    /// Check whether certificate was processed by consensus.
-    /// For shared lock certificates, if this function returns true means shared locks for this certificate are set
-    pub fn is_tx_cert_consensus_message_processed(
-        &self,
-        certificate: &CertifiedTransaction,
-    ) -> SuiResult<bool> {
-        self.is_consensus_message_processed(&SequencedConsensusTransactionKey::External(
-            ConsensusTransactionKey::Certificate(*certificate.digest()),
-        ))
     }
 
     /// Check whether any certificates were processed by consensus.
@@ -2848,48 +2864,21 @@ impl AuthorityPerEpochStore {
         // We track transaction execution cost separately for regular transactions and transactions using randomness, since
         // they will be in different PendingCheckpoints.
         let tables = self.tables()?;
-        let default_per_commit_budget = self
-            .protocol_config()
-            .max_accumulated_txn_cost_per_object_in_mysticeti_commit_as_option()
-            .unwrap_or(0);
-        let max_txn_cost_overage_per_object_in_commit = self
-            .protocol_config()
-            .max_txn_cost_overage_per_object_in_commit_as_option()
-            .unwrap_or(0);
-        let shared_object_congestion_tracker = SharedObjectCongestionTracker::new(
-            tables.load_initial_object_debts(
-                consensus_commit_info.round,
-                false,
-                default_per_commit_budget,
-                &sequenced_transactions,
-            )?,
-            self.protocol_config().per_object_congestion_control_mode(),
-            self.protocol_config()
-                .max_accumulated_txn_cost_per_object_in_mysticeti_commit_as_option(),
-            self.protocol_config()
-                .gas_budget_based_txn_cost_cap_factor_as_option(),
-            max_txn_cost_overage_per_object_in_commit,
-        );
-        let shared_object_using_randomness_congestion_tracker = SharedObjectCongestionTracker::new(
-            tables.load_initial_object_debts(
+        let shared_object_congestion_tracker = SharedObjectCongestionTracker::from_protocol_config(
+            &tables,
+            self.protocol_config(),
+            consensus_commit_info.round,
+            false,
+            &sequenced_transactions,
+        )?;
+        let shared_object_using_randomness_congestion_tracker =
+            SharedObjectCongestionTracker::from_protocol_config(
+                &tables,
+                self.protocol_config(),
                 consensus_commit_info.round,
                 true,
-                self.protocol_config()
-                    .max_accumulated_randomness_txn_cost_per_object_in_mysticeti_commit_as_option()
-                    .unwrap_or(default_per_commit_budget),
                 &sequenced_randomness_transactions,
-            )?,
-            self.protocol_config().per_object_congestion_control_mode(),
-            self.protocol_config()
-                .max_accumulated_randomness_txn_cost_per_object_in_mysticeti_commit_as_option()
-                .or_else(|| {
-                    self.protocol_config()
-                        .max_accumulated_txn_cost_per_object_in_mysticeti_commit_as_option()
-                }),
-            self.protocol_config()
-                .gas_budget_based_txn_cost_cap_factor_as_option(),
-            max_txn_cost_overage_per_object_in_commit,
-        );
+            )?;
 
         // We always order transactions using randomness last.
         let consensus_transactions: Vec<_> = system_transactions
@@ -3048,7 +3037,6 @@ impl AuthorityPerEpochStore {
         consensus_commit_info: &ConsensusCommitInfo,
         cancelled_txns: &BTreeMap<TransactionDigest, CancelConsensusCertificateReason>,
     ) -> SuiResult<Option<TransactionKey>> {
-        #[cfg(any(test, feature = "test-utils"))]
         {
             if consensus_commit_info.skip_consensus_commit_prologue_in_test() {
                 return Ok(None);
@@ -3130,7 +3118,6 @@ impl AuthorityPerEpochStore {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
     pub fn get_highest_pending_checkpoint_height(&self) -> CheckpointHeight {
         self.tables()
             .expect("test should not cross epoch boundary")
@@ -3146,7 +3133,6 @@ impl AuthorityPerEpochStore {
     // VerifiedSequencedConsensusTransaction.
     // Also, ConsensusStats and hash will not be updated in the db with this function, unlike in
     // process_consensus_transactions_and_commit_boundary().
-    #[cfg(any(test, feature = "test-utils"))]
     pub async fn process_consensus_transactions_for_tests<C: CheckpointServiceNotify>(
         self: &Arc<Self>,
         transactions: Vec<SequencedConsensusTransaction>,
@@ -3174,7 +3160,6 @@ impl AuthorityPerEpochStore {
         .await
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
     pub async fn assign_shared_object_versions_for_tests(
         self: &Arc<Self>,
         cache_reader: &dyn ObjectCacheRead,
@@ -4230,7 +4215,7 @@ pub(crate) struct ConsensusCommitOutput {
     dkg_confirmations: BTreeMap<PartyId, VersionedDkgConfirmation>,
     dkg_processed_messages: BTreeMap<PartyId, VersionedProcessedMessage>,
     dkg_used_message: Option<VersionedUsedProcessedMessages>,
-    dkg_output: Option<dkg::Output<PkG, EncG>>,
+    dkg_output: Option<dkg_v1::Output<PkG, EncG>>,
 
     // jwk state
     pending_jwks: BTreeSet<(AuthorityName, JwkId, JWK)>,
@@ -4329,7 +4314,7 @@ impl ConsensusCommitOutput {
         self.dkg_used_message = Some(used_messages);
     }
 
-    pub fn set_dkg_output(&mut self, output: dkg::Output<PkG, EncG>) {
+    pub fn set_dkg_output(&mut self, output: dkg_v1::Output<PkG, EncG>) {
         self.dkg_output = Some(output);
     }
 

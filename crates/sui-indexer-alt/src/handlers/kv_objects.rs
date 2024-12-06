@@ -5,25 +5,21 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use diesel_async::RunQueryDsl;
+use sui_indexer_alt_framework::{
+    db,
+    pipeline::{concurrent::Handler, Processor},
+};
 use sui_types::full_checkpoint_content::CheckpointData;
 
-use crate::{db, models::objects::StoredObject, schema::kv_objects};
+use crate::{models::objects::StoredObject, schema::kv_objects};
 
-use super::Handler;
+pub(crate) struct KvObjects;
 
-pub struct KvObjects;
-
-#[async_trait::async_trait]
-impl Handler for KvObjects {
+impl Processor for KvObjects {
     const NAME: &'static str = "kv_objects";
-
-    const BATCH_SIZE: usize = 100;
-    const CHUNK_SIZE: usize = 1000;
-    const MAX_PENDING_SIZE: usize = 10000;
-
     type Value = StoredObject;
 
-    fn process(checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
+    fn process(&self, checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
         let deleted_objects = checkpoint
             .eventually_removed_object_refs_post_version()
             .into_iter()
@@ -56,6 +52,12 @@ impl Handler for KvObjects {
             .chain(created_objects)
             .collect::<Result<Vec<_>, _>>()
     }
+}
+
+#[async_trait::async_trait]
+impl Handler for KvObjects {
+    const MIN_EAGER_ROWS: usize = 100;
+    const MAX_PENDING_ROWS: usize = 10000;
 
     async fn commit(values: &[Self::Value], conn: &mut db::Connection<'_>) -> Result<usize> {
         Ok(diesel::insert_into(kv_objects::table)

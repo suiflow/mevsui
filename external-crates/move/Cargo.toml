@@ -92,7 +92,7 @@ proptest = "1.0.0"
 proptest-derive = "0.3.0"
 quote = "1.0.9"
 rand = "0.8.0"
-rayon = "1.5.0"
+rayon = "1.10.0"
 ref-cast = "1.0.6"
 regex = "1.5.5"
 ripemd160 = "0.9.1"
@@ -131,6 +131,7 @@ walkdir = "2.3.1"
 whoami = { version = "1.2.1" }
 x25519-dalek = { version = "0.1.0", package = "x25519-dalek-fiat", default-features = false, features = ["std", "u64_backend"] }
 z3tracer = "0.8.0"
+inline_colorization = "0.1.6"
 
 bytecode-interpreter-crypto = { path = "crates/bytecode-interpreter-crypto" }
 enum-compat-util = { path = "crates/enum-compat-util"}

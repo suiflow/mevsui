@@ -174,24 +174,18 @@ impl TestSetup {
             self.setup_authority_state
                 .get_object(&self.package.0)
                 .await
-                .unwrap()
                 .unwrap(),
         ));
         genesis_objects.push(TestSetup::convert_to_genesis_obj(
             self.setup_authority_state
                 .get_object(&self.gas_object_id)
                 .await
-                .unwrap()
                 .unwrap(),
         ));
 
         for obj in objects {
             genesis_objects.push(TestSetup::convert_to_genesis_obj(
-                self.setup_authority_state
-                    .get_object(obj)
-                    .await
-                    .unwrap()
-                    .unwrap(),
+                self.setup_authority_state.get_object(obj).await.unwrap(),
             ));
         }
         genesis_objects
@@ -306,6 +300,7 @@ async fn test_congestion_control_execution_cancellation() {
                     .max_accumulated_txn_cost_per_object_in_mysticeti_commit(),
             ),
             Some(1000), // Not used.
+            None,       // Not used.
             0,          // Disable overage.
         ))
     });
@@ -322,7 +317,6 @@ async fn test_congestion_control_execution_cancellation() {
         &authority_state
             .get_object(&owned_object.0)
             .await
-            .unwrap()
             .unwrap()
             .compute_object_reference(),
     )
