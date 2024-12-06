@@ -5,6 +5,10 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use diesel_async::RunQueryDsl;
+use sui_indexer_alt_framework::{
+    db,
+    pipeline::{concurrent::Handler, Processor},
+};
 use sui_types::{
     coin::Coin,
     effects::TransactionEffectsAPI,
@@ -13,26 +17,18 @@ use sui_types::{
 };
 
 use crate::{
-    db,
     models::transactions::{BalanceChange, StoredTxBalanceChange},
     schema::tx_balance_changes,
 };
 
-use super::Handler;
+pub(crate) struct TxBalanceChanges;
 
-pub struct TxBalanceChanges;
-
-#[async_trait::async_trait]
-impl Handler for TxBalanceChanges {
+impl Processor for TxBalanceChanges {
     const NAME: &'static str = "tx_balance_changes";
-
-    const BATCH_SIZE: usize = 100;
-    const CHUNK_SIZE: usize = 1000;
-    const MAX_PENDING_SIZE: usize = 10000;
 
     type Value = StoredTxBalanceChange;
 
-    fn process(checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
+    fn process(&self, checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
         let CheckpointData {
             transactions,
             checkpoint_summary,
@@ -58,6 +54,12 @@ impl Handler for TxBalanceChanges {
 
         Ok(values)
     }
+}
+
+#[async_trait::async_trait]
+impl Handler for TxBalanceChanges {
+    const MIN_EAGER_ROWS: usize = 100;
+    const MAX_PENDING_ROWS: usize = 10000;
 
     async fn commit(values: &[Self::Value], conn: &mut db::Connection<'_>) -> Result<usize> {
         Ok(diesel::insert_into(tx_balance_changes::table)
@@ -95,7 +97,7 @@ fn balance_changes(transaction: &CheckpointTransaction) -> Result<Vec<BalanceCha
     Ok(changes
         .into_iter()
         .map(|((owner, coin_type), amount)| BalanceChange::V1 {
-            owner: *owner,
+            owner: owner.clone(),
             coin_type: coin_type.to_canonical_string(/* with_prefix */ true),
             amount,
         })

@@ -24,6 +24,7 @@ use mysten_network::{
     Multiaddr,
 };
 use parking_lot::RwLock;
+use sui_tls::AllowPublicKeys;
 use tokio::{
     pin,
     task::JoinSet,
@@ -44,7 +45,6 @@ use super::{
         consensus_service_client::ConsensusServiceClient,
         consensus_service_server::ConsensusService,
     },
-    tonic_tls::create_rustls_client_config,
     BlockStream, NetworkClient, NetworkManager, NetworkService,
 };
 use crate::{
@@ -54,7 +54,7 @@ use crate::{
     error::{ConsensusError, ConsensusResult},
     network::{
         tonic_gen::consensus_service_server::ConsensusServiceServer,
-        tonic_tls::create_rustls_server_config,
+        tonic_tls::certificate_server_name,
     },
     CommitIndex, Round,
 };
@@ -325,14 +325,15 @@ impl NetworkClient for TonicClient {
         &self,
         peer: AuthorityIndex,
         timeout: Duration,
-    ) -> ConsensusResult<Vec<Round>> {
+    ) -> ConsensusResult<(Vec<Round>, Vec<Round>)> {
         let mut client = self.get_client(peer, timeout).await?;
         let mut request = Request::new(GetLatestRoundsRequest {});
         request.set_timeout(timeout);
         let response = client.get_latest_rounds(request).await.map_err(|e| {
             ConsensusError::NetworkRequest(format!("get_latest_rounds failed: {e:?}"))
         })?;
-        Ok(response.into_inner().highest_received)
+        let response = response.into_inner();
+        Ok((response.highest_received, response.highest_accepted))
     }
 }
 
@@ -381,7 +382,16 @@ impl ChannelPool {
         let address = format!("https://{address}");
         let config = &self.context.parameters.tonic;
         let buffer_size = config.connection_buffer_size;
-        let client_tls_config = create_rustls_client_config(&self.context, network_keypair, peer);
+        let client_tls_config = sui_tls::create_rustls_client_config(
+            self.context
+                .committee
+                .authority(peer)
+                .network_key
+                .clone()
+                .into_inner(),
+            certificate_server_name(&self.context),
+            Some(network_keypair.private_key().into_inner()),
+        );
         let endpoint = tonic_rustls::Channel::from_shared(address.clone())
             .unwrap()
             .connect_timeout(timeout)
@@ -635,12 +645,15 @@ impl<S: NetworkService> ConsensusService for TonicServiceProxy<S> {
         else {
             return Err(tonic::Status::internal("PeerInfo not found"));
         };
-        let highest_received = self
+        let (highest_received, highest_accepted) = self
             .service
             .handle_get_latest_rounds(peer_index)
             .await
             .map_err(|e| tonic::Status::internal(format!("{e:?}")))?;
-        Ok(Response::new(GetLatestRoundsResponse { highest_received }))
+        Ok(Response::new(GetLatestRoundsResponse {
+            highest_received,
+            highest_accepted,
+        }))
     }
 }
 
@@ -728,8 +741,17 @@ impl<S: NetworkService> NetworkManager<S> for TonicManager {
             Arc::new(builder)
         };
 
-        let tls_server_config =
-            create_rustls_server_config(&self.context, self.network_keypair.clone());
+        let tls_server_config = sui_tls::create_rustls_server_config(
+            self.network_keypair.clone().private_key().into_inner(),
+            certificate_server_name(&self.context),
+            AllowPublicKeys::new(
+                self.context
+                    .committee
+                    .authorities()
+                    .map(|(_i, a)| a.network_key.clone().into_inner())
+                    .collect(),
+            ),
+        );
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_server_config));
 
         // Create listener to incoming connections.
@@ -1181,6 +1203,9 @@ pub(crate) struct GetLatestRoundsResponse {
     // Highest received round per authority.
     #[prost(uint32, repeated, tag = "1")]
     highest_received: Vec<u32>,
+    // Highest accepted round per authority.
+    #[prost(uint32, repeated, tag = "2")]
+    highest_accepted: Vec<u32>,
 }
 
 fn chunk_blocks(blocks: Vec<Bytes>, chunk_limit: usize) -> Vec<Vec<Bytes>> {

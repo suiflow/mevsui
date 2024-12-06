@@ -5,25 +5,22 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use diesel_async::RunQueryDsl;
+use sui_indexer_alt_framework::{
+    db,
+    pipeline::{concurrent::Handler, Processor},
+};
 use sui_types::full_checkpoint_content::CheckpointData;
 
-use crate::{db, models::transactions::StoredTransaction, schema::kv_transactions};
+use crate::{models::transactions::StoredTransaction, schema::kv_transactions};
 
-use super::Handler;
+pub(crate) struct KvTransactions;
 
-pub struct KvTransactions;
-
-#[async_trait::async_trait]
-impl Handler for KvTransactions {
+impl Processor for KvTransactions {
     const NAME: &'static str = "kv_transactions";
-
-    const BATCH_SIZE: usize = 100;
-    const CHUNK_SIZE: usize = 1000;
-    const MAX_PENDING_SIZE: usize = 10000;
 
     type Value = StoredTransaction;
 
-    fn process(checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
+    fn process(&self, checkpoint: &Arc<CheckpointData>) -> Result<Vec<Self::Value>> {
         let CheckpointData {
             transactions,
             checkpoint_summary,
@@ -58,6 +55,12 @@ impl Handler for KvTransactions {
 
         Ok(values)
     }
+}
+
+#[async_trait::async_trait]
+impl Handler for KvTransactions {
+    const MIN_EAGER_ROWS: usize = 100;
+    const MAX_PENDING_ROWS: usize = 10000;
 
     async fn commit(values: &[Self::Value], conn: &mut db::Connection<'_>) -> Result<usize> {
         Ok(diesel::insert_into(kv_transactions::table)

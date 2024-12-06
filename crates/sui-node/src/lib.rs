@@ -14,6 +14,8 @@ use fastcrypto_zkp::bn254::zk_login::JwkId;
 use fastcrypto_zkp::bn254::zk_login::OIDCProvider;
 use futures::TryFutureExt;
 use ipc_server::build_ipc_server;
+use mysten_network::server::SUI_TLS_SERVER_NAME;
+
 use prometheus::Registry;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -28,8 +30,8 @@ use sui_core::authority::authority_store_tables::AuthorityPerpetualTablesOptions
 use sui_core::authority::epoch_start_configuration::EpochFlag;
 use sui_core::authority::RandomnessRoundReceiver;
 use sui_core::authority::CHAIN_IDENTIFIER;
-use sui_core::consensus_adapter::SubmitToConsensus;
-use sui_core::consensus_manager::ConsensusClient;
+use sui_core::consensus_adapter::ConsensusClient;
+use sui_core::consensus_manager::UpdatableConsensusClient;
 use sui_core::epoch::randomness::RandomnessManager;
 use sui_core::execution_cache::build_execution_cache;
 use sui_core::state_accumulator::StateAccumulatorMetrics;
@@ -490,8 +492,12 @@ impl SuiNode {
         let cache_metrics = Arc::new(ResolverMetrics::new(&prometheus_registry));
         let signature_verifier_metrics = SignatureVerifierMetrics::new(&prometheus_registry);
 
-        let cache_traits =
-            build_execution_cache(&epoch_start_configuration, &prometheus_registry, &store);
+        let cache_traits = build_execution_cache(
+            &config.execution_cache,
+            &epoch_start_configuration,
+            &prometheus_registry,
+            &store,
+        );
 
         let auth_agg = {
             let safe_client_metrics_base = SafeClientMetricsBase::new(&prometheus_registry);
@@ -1212,7 +1218,7 @@ impl SuiNode {
             .as_mut()
             .ok_or_else(|| anyhow!("Validator is missing consensus config"))?;
 
-        let client = Arc::new(ConsensusClient::new());
+        let client = Arc::new(UpdatableConsensusClient::new());
         let consensus_adapter = Arc::new(Self::construct_consensus_adapter(
             &committee,
             consensus_config,
@@ -1362,7 +1368,8 @@ impl SuiNode {
                 epoch_store.clone(),
                 consensus_handler_initializer,
                 SuiTxValidator::new(
-                    epoch_store.clone(),
+                    state.clone(),
+                    consensus_adapter.clone(),
                     checkpoint_service.clone(),
                     state.transaction_manager().clone(),
                     sui_tx_validator_metrics.clone(),
@@ -1447,7 +1454,7 @@ impl SuiNode {
         connection_monitor_status: Arc<ConnectionMonitorStatus>,
         prometheus_registry: &Registry,
         protocol_config: ProtocolConfig,
-        consensus_client: Arc<dyn SubmitToConsensus>,
+        consensus_client: Arc<dyn ConsensusClient>,
     ) -> ConsensusAdapter {
         let ca_metrics = ConsensusAdapterMetrics::new(prometheus_registry);
         // The consensus adapter allows the authority to send user certificates through consensus.
@@ -1488,8 +1495,13 @@ impl SuiNode {
 
         server_builder = server_builder.add_service(ValidatorServer::new(validator_service));
 
+        let tls_config = sui_tls::create_rustls_server_config(
+            config.network_key_pair().copy().private(),
+            SUI_TLS_SERVER_NAME.to_string(),
+            sui_tls::AllowAll,
+        );
         let server = server_builder
-            .bind(config.network_address())
+            .bind(config.network_address(), Some(tls_config))
             .await
             .map_err(|err| anyhow!(err.to_string()))?;
         let local_addr = server.local_addr();
@@ -2069,7 +2081,15 @@ pub async fn build_http_server(
                     reverse_registry_id,
                 )
             } else {
-                sui_json_rpc::name_service::NameServiceConfig::default()
+                match CHAIN_IDENTIFIER
+                    .get()
+                    .expect("chain_id should be initialized")
+                    .chain()
+                {
+                    Chain::Mainnet => sui_json_rpc::name_service::NameServiceConfig::mainnet(),
+                    Chain::Testnet => sui_json_rpc::name_service::NameServiceConfig::testnet(),
+                    Chain::Unknown => sui_json_rpc::name_service::NameServiceConfig::default(),
+                }
             };
 
         server.register_module(IndexerApi::new(

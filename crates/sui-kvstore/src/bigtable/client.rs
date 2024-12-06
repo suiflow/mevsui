@@ -5,8 +5,9 @@ use crate::bigtable::proto::bigtable::v2::bigtable_client::BigtableClient as Big
 use crate::bigtable::proto::bigtable::v2::mutate_rows_request::Entry;
 use crate::bigtable::proto::bigtable::v2::mutation::SetCell;
 use crate::bigtable::proto::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
+use crate::bigtable::proto::bigtable::v2::row_range::EndKey;
 use crate::bigtable::proto::bigtable::v2::{
-    mutation, MutateRowsRequest, MutateRowsResponse, Mutation, ReadRowsRequest, RowSet,
+    mutation, MutateRowsRequest, MutateRowsResponse, Mutation, ReadRowsRequest, RowRange, RowSet,
 };
 use crate::{Checkpoint, KeyValueStoreReader, KeyValueStoreWriter, TransactionData};
 use anyhow::{anyhow, Result};
@@ -18,7 +19,8 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use sui_types::base_types::TransactionDigest;
+use sui_types::base_types::{ObjectID, TransactionDigest};
+use sui_types::digests::CheckpointDigest;
 use sui_types::full_checkpoint_content::CheckpointData;
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use sui_types::object::Object;
@@ -30,8 +32,9 @@ use tonic::Streaming;
 use tracing::error;
 
 const OBJECTS_TABLE: &str = "objects";
-const CHECKPOINTS_TABLE: &str = "checkpoints";
 const TRANSACTIONS_TABLE: &str = "transactions";
+const CHECKPOINTS_TABLE: &str = "checkpoints";
+const CHECKPOINTS_BY_DIGEST_TABLE: &str = "checkpoints_by_digest";
 
 const COLUMN_FAMILY_NAME: &str = "sui";
 const DEFAULT_COLUMN_QUALIFIER: &str = "";
@@ -117,7 +120,16 @@ impl KeyValueStoreWriter for BigTableClient {
                 bcs::to_bytes(contents)?,
             ),
         ];
-        self.multi_set(CHECKPOINTS_TABLE, [(key, cells)]).await
+        self.multi_set(CHECKPOINTS_TABLE, [(key.clone(), cells)])
+            .await?;
+        self.multi_set(
+            CHECKPOINTS_BY_DIGEST_TABLE,
+            [(
+                checkpoint.checkpoint_summary.digest().inner().to_vec(),
+                vec![(DEFAULT_COLUMN_QUALIFIER, key)],
+            )],
+        )
+        .await
     }
 }
 
@@ -203,6 +215,47 @@ impl KeyValueStoreReader for BigTableClient {
             checkpoints.push(checkpoint);
         }
         Ok(checkpoints)
+    }
+
+    async fn get_checkpoint_by_digest(
+        &mut self,
+        digest: CheckpointDigest,
+    ) -> Result<Option<Checkpoint>> {
+        let key = digest.inner().to_vec();
+        let mut response = self
+            .multi_get(CHECKPOINTS_BY_DIGEST_TABLE, vec![key])
+            .await?;
+        if let Some(row) = response.pop() {
+            if let Some((_, value)) = row.into_iter().next() {
+                let sequence_number = u64::from_be_bytes(value.as_slice().try_into()?);
+                if let Some(chk) = self.get_checkpoints(&[sequence_number]).await?.pop() {
+                    return Ok(Some(chk));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    async fn get_latest_checkpoint(&mut self) -> Result<CheckpointSequenceNumber> {
+        let upper_limit = u64::MAX.to_be_bytes().to_vec();
+        match self
+            .reversed_scan(CHECKPOINTS_TABLE, upper_limit)
+            .await?
+            .pop()
+        {
+            Some((key_bytes, _)) => Ok(u64::from_be_bytes(key_bytes.as_slice().try_into()?)),
+            None => Ok(0),
+        }
+    }
+
+    async fn get_latest_object(&mut self, object_id: &ObjectID) -> Result<Option<Object>> {
+        let upper_limit = Self::raw_object_key(&ObjectKey::max_for_id(object_id))?;
+        if let Some((_, row)) = self.reversed_scan(OBJECTS_TABLE, upper_limit).await?.pop() {
+            if let Some((_, value)) = row.into_iter().next() {
+                return Ok(Some(bcs::from_bytes(&value)?));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -377,6 +430,28 @@ impl BigTableClient {
         Ok(result)
     }
 
+    async fn reversed_scan(
+        &mut self,
+        table_name: &str,
+        upper_limit: Bytes,
+    ) -> Result<Vec<(Bytes, Vec<(Bytes, Bytes)>)>> {
+        let range = RowRange {
+            start_key: None,
+            end_key: Some(EndKey::EndKeyClosed(upper_limit)),
+        };
+        let request = ReadRowsRequest {
+            table_name: format!("{}{}", self.table_prefix, table_name),
+            rows_limit: 1,
+            rows: Some(RowSet {
+                row_keys: vec![],
+                row_ranges: vec![range],
+            }),
+            reversed: true,
+            ..ReadRowsRequest::default()
+        };
+        self.read_rows(request).await
+    }
+
     fn raw_object_key(object_key: &ObjectKey) -> Result<Vec<u8>> {
         let mut raw_key = object_key.0.to_vec();
         raw_key.extend(object_key.1.value().to_be_bytes());
@@ -427,6 +502,9 @@ impl Service<Request<BoxBody>> for AuthChannel {
                     HeaderValue::from_str(format!("Bearer {}", token_string.as_str()).as_str())?;
                 request.headers_mut().insert("authorization", header);
             }
+            // enable reverse scan
+            let header = HeaderValue::from_static("CAE=");
+            request.headers_mut().insert("bigtable-features", header);
             Ok(inner.call(request).await?)
         })
     }

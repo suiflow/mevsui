@@ -92,6 +92,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@protoc
       - name: Add postgres to PATH
         run: echo "/usr/lib/postgresql/14/bin" >> $GITHUB_PATH
       - name: Set Swap Space
@@ -125,6 +126,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@protoc
       - name: Add postgres to PATH
         run: echo "/usr/lib/postgresql/14/bin" >> $GITHUB_PATH
       - name: Set Swap Space
@@ -164,6 +166,9 @@ jobs:
       - name: Indexer Alt schema
         run: |
           ./crates/sui-indexer-alt/generate_schema.sh
+      - name: Indexer Alt Framework schema
+        run: |
+          ./crates/sui-indexer-alt-framework/generate_schema.sh
       # Ensure there are no uncommitted changes in the repo after running tests
       - run: scripts/changed-files.sh
         shell: bash
@@ -212,6 +217,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@protoc
       - name: Add postgres to PATH
         run: echo "/usr/lib/postgresql/14/bin" >> $GITHUB_PATH
       - name: Set Swap Space
