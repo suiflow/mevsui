@@ -2,6 +2,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::cache_update_handler::CacheUpdateHandler;
 use crate::consensus_adapter::ConsensusOverloadChecker;
 use crate::execution_cache::ExecutionCacheTraitPointers;
 use crate::execution_cache::TransactionCacheRead;
@@ -822,6 +823,8 @@ pub struct AuthorityState {
     pub overload_info: AuthorityOverloadInfo,
 
     pub validator_tx_finalizer: Option<Arc<ValidatorTxFinalizer<NetworkAuthorityClient>>>,
+
+    pub cache_update_handler: CacheUpdateHandler,
 }
 
 /// The authority state encapsulates all state, drives execution, and ensures safety.
@@ -1537,13 +1540,26 @@ impl AuthorityState {
         // Allow testing what happens if we crash here.
         fail_point_async!("crash");
 
-        let transaction_outputs = TransactionOutputs::build_transaction_outputs(
+        let transaction_outputs = Arc::new(TransactionOutputs::build_transaction_outputs(
             certificate.clone().into_unsigned(),
             effects.clone(),
             inner_temporary_store,
-        );
+        ));
+
+        let mut package_updates = Vec::new();
+        for (id, object) in transaction_outputs.written.iter() {
+            if object.is_package() {
+                package_updates.push((*id, object.clone()));
+            }
+        }
+
+        // Here update cache
         self.get_cache_writer()
-            .write_transaction_outputs(epoch_store.epoch(), transaction_outputs.into())
+            .write_transaction_outputs(epoch_store.epoch(), transaction_outputs)
+            .await;
+
+        self.cache_update_handler
+            .update_cache(package_updates)
             .await;
 
         if certificate.transaction_data().is_end_of_epoch_tx() {
@@ -1682,6 +1698,7 @@ impl AuthorityState {
         });
 
         let elapsed = prepare_certificate_start_time.elapsed().as_micros() as f64;
+        info!("elapsed={:.2}us", elapsed);
         if elapsed > 0.0 {
             self.metrics
                 .prepare_cert_gas_latency_ratio
@@ -3121,6 +3138,7 @@ impl AuthorityState {
             config,
             overload_info: AuthorityOverloadInfo::default(),
             validator_tx_finalizer,
+            cache_update_handler: CacheUpdateHandler::new(),
         });
 
         // Start a task to execute ready certificates.

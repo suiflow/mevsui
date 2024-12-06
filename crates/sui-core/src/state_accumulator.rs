@@ -672,7 +672,7 @@ impl StateAccumulatorV2 {
         checkpoint_acc: Option<Accumulator>,
     ) -> SuiResult {
         let _scope = monitored_scope("AccumulateRunningRoot");
-        tracing::info!(
+        tracing::debug!(
             "accumulating running root for checkpoint {}",
             checkpoint_seq_num
         );
