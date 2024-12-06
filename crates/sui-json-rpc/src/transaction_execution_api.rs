@@ -311,7 +311,7 @@ impl TransactionExecutionApi {
             &object_cache,
             &transaction_effects,
             input_objs,
-            mock_gas,
+            mock_gas.map(|obj| vec![obj]),
         )
         .await?;
         let object_changes = get_object_changes(
@@ -349,7 +349,7 @@ impl TransactionExecutionApi {
             &object_cache,
             &transaction_effects,
             input_objs,
-            mock_gas,
+            mock_gas.map(|obj| vec![obj]),
         )
         .await?;
         let object_changes = get_object_changes(
