@@ -93,6 +93,7 @@ sui-types.workspace = true
 zeroize.workspace = true
 nonempty.workspace = true
 bincode.workspace = true
+interprocess.workspace = true
 
 [dev-dependencies]
 clap.workspace = true

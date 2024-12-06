@@ -13498,6 +13498,7 @@ dependencies = [
  "futures",
  "im",
  "indexmap 2.2.6",
+ "interprocess",
  "itertools 0.13.0",
  "jsonrpsee",
  "lru 0.10.0",
