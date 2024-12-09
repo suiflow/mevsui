@@ -66,8 +66,8 @@ impl TxHandler {
         events: Vec<SuiEvent>,
     ) -> Result<()> {
         // Serialize effects and events separately
-        let effects_bytes = bcs::to_bytes(effects)?;
-        let events_bytes = bcs::to_bytes(&events)?;
+        let effects_bytes = bincode::serialize(effects)?;
+        let events_bytes = bincode::serialize(&events)?;
 
         // Get lengths as BE bytes
         let effects_len_bytes = (effects_bytes.len() as u32).to_be_bytes();
