@@ -876,16 +876,16 @@ pub struct ProtocolConfig {
     // === Object runtime internal operation limits ====
     // These affect dynamic fields
     /// Maximum number of cached objects in the object runtime ObjectStore. Enforced by object runtime during execution
-    object_runtime_max_num_cached_objects: Option<u64>,
+    pub object_runtime_max_num_cached_objects: Option<u64>,
 
     /// Maximum number of cached objects in the object runtime ObjectStore in system transaction. Enforced by object runtime during execution
-    object_runtime_max_num_cached_objects_system_tx: Option<u64>,
+    pub object_runtime_max_num_cached_objects_system_tx: Option<u64>,
 
     /// Maximum number of stored objects accessed by object runtime ObjectStore. Enforced by object runtime during execution
-    object_runtime_max_num_store_entries: Option<u64>,
+    pub object_runtime_max_num_store_entries: Option<u64>,
 
     /// Maximum number of stored objects accessed by object runtime ObjectStore in system transaction. Enforced by object runtime during execution
-    object_runtime_max_num_store_entries_system_tx: Option<u64>,
+    pub object_runtime_max_num_store_entries_system_tx: Option<u64>,
 
     // === Execution gas costs ====
     /// Base cost for any Sui transaction
