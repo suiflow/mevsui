@@ -1,19 +1,36 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use sui_types::base_types::ObjectRef;
+use sui_types::committee::EpochId;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI, TransactionEvents};
 use sui_types::inner_temporary_store::{InnerTemporaryStore, WrittenObjects};
+use sui_types::message_envelope::{Envelope, VerifiedEnvelope};
 use sui_types::storage::{MarkerValue, ObjectKey};
-use sui_types::transaction::{TransactionDataAPI, VerifiedTransaction};
+use sui_types::transaction::{Transaction, TransactionDataAPI, VerifiedTransaction};
 
 /// TransactionOutputs
 pub struct TransactionOutputs {
     pub transaction: Arc<VerifiedTransaction>,
     pub effects: TransactionEffects,
     pub events: TransactionEvents,
+
+    pub markers: Vec<(ObjectKey, MarkerValue)>,
+    pub wrapped: Vec<ObjectKey>,
+    pub deleted: Vec<ObjectKey>,
+    pub locks_to_delete: Vec<ObjectRef>,
+    pub new_locks_to_init: Vec<ObjectRef>,
+    pub written: WrittenObjects,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableTransactionOutputs {
+    transaction: Transaction,
+    effects: TransactionEffects,
+    events: TransactionEvents,
 
     pub markers: Vec<(ObjectKey, MarkerValue)>,
     pub wrapped: Vec<ObjectKey>,
@@ -127,6 +144,45 @@ impl TransactionOutputs {
             locks_to_delete,
             new_locks_to_init,
             written,
+        }
+    }
+
+    pub fn to_bytes(&self, epoch_id: EpochId) -> Vec<u8> {
+        // first convert to serializable
+        let serializable = SerializableTransactionOutputs {
+            transaction: Envelope::new_from_data_and_sig(
+                self.transaction.data().clone(),
+                self.transaction.auth_sig().clone(),
+            ),
+            effects: self.effects.clone(),
+            events: self.events.clone(),
+            markers: self.markers.clone(),
+            wrapped: self.wrapped.clone(),
+            deleted: self.deleted.clone(),
+            locks_to_delete: self.locks_to_delete.clone(),
+            new_locks_to_init: self.new_locks_to_init.clone(),
+            written: self.written.clone(),
+        };
+        let to_serialize = (epoch_id, serializable);
+        bcs::to_bytes(&to_serialize).expect("Failed to serialize TransactionOutputs")
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let serializable: SerializableTransactionOutputs =
+            bcs::from_bytes(bytes).expect("Failed to deserialize TransactionOutputs");
+
+        let verified_transaction = VerifiedEnvelope::new_unchecked(serializable.transaction);
+
+        Self {
+            transaction: Arc::new(verified_transaction),
+            effects: serializable.effects,
+            events: serializable.events,
+            markers: serializable.markers,
+            wrapped: serializable.wrapped,
+            deleted: serializable.deleted,
+            locks_to_delete: serializable.locks_to_delete,
+            new_locks_to_init: serializable.new_locks_to_init,
+            written: serializable.written,
         }
     }
 }

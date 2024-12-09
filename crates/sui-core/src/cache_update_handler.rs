@@ -5,12 +5,15 @@ use std::sync::{
     Arc,
 };
 use sui_types::base_types::ObjectID;
+use sui_types::committee::EpochId;
 use sui_types::object::Object;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 use tracing::{error, info};
+
+use crate::transaction_outputs::TransactionOutputs;
 
 const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
 
@@ -56,6 +59,25 @@ impl CacheUpdateHandler {
             socket_path,
             connections,
             running,
+        }
+    }
+
+    pub async fn update_all(&self, epoch_id: EpochId, outputs: Arc<TransactionOutputs>) {
+        let serialized = outputs.to_bytes(epoch_id);
+        let len = serialized.len() as u32;
+        let len_bytes = len.to_le_bytes();
+
+        let mut connections = self.connections.lock().await;
+        for stream in connections.iter_mut() {
+            if let Err(e) = stream.write_all(&len_bytes).await {
+                error!("Error writing length prefix to client: {}", e);
+            }
+        }
+
+        for stream in connections.iter_mut() {
+            if let Err(e) = stream.write_all(&serialized).await {
+                error!("Error writing to client: {}", e);
+            }
         }
     }
 
