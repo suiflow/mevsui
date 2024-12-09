@@ -167,10 +167,7 @@ impl TransactionOutputs {
         bcs::to_bytes(&to_serialize).expect("Failed to serialize TransactionOutputs")
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let serializable: SerializableTransactionOutputs =
-            bcs::from_bytes(bytes).expect("Failed to deserialize TransactionOutputs");
-
+    pub fn from_serializable(serializable: SerializableTransactionOutputs) -> Self {
         let verified_transaction = VerifiedEnvelope::new_unchecked(serializable.transaction);
 
         Self {
