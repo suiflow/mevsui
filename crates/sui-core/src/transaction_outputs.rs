@@ -27,7 +27,7 @@ pub struct TransactionOutputs {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SerializableTransactionOutputs {
+pub struct SerializableTransactionOutputs {
     transaction: Transaction,
     effects: TransactionEffects,
     events: TransactionEvents,
