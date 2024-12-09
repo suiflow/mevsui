@@ -65,19 +65,26 @@ impl TxHandler {
         effects: &TransactionEffects,
         events: Vec<SuiEvent>,
     ) -> Result<()> {
-        // Pre-allocate buffer with exact size needed to avoid reallocations
+        // Serialize effects and events separately
+        let effects_bytes = bcs::to_bytes(effects)?;
+        let events_bytes = bcs::to_bytes(&events)?;
 
-        let data_bytes = bcs::to_bytes(&(effects, events))?;
-
-        let len_bytes = (data_bytes.len() as u32).to_be_bytes();
+        // Get lengths as BE bytes
+        let effects_len_bytes = (effects_bytes.len() as u32).to_be_bytes();
+        let events_len_bytes = (events_bytes.len() as u32).to_be_bytes();
 
         let mut conns = self.conns.lock().await;
         let mut active_conns = Vec::new();
 
         while let Some(mut conn) = conns.pop() {
             let result: Result<()> = async {
-                conn.write_all(&len_bytes).await?;
-                conn.write_all(&data_bytes).await?;
+                // Write effects length and data
+                conn.write_all(&effects_len_bytes).await?;
+                conn.write_all(&effects_bytes).await?;
+
+                // Write events length and data
+                conn.write_all(&events_len_bytes).await?;
+                conn.write_all(&events_bytes).await?;
                 Ok(())
             }
             .await;
