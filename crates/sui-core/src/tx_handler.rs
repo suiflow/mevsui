@@ -5,7 +5,8 @@ use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
     GenericNamespaced, ListenerOptions,
 };
-use sui_types::effects::{TransactionEffects, TransactionEvents};
+use sui_json_rpc_types::SuiEvent;
+use sui_types::effects::TransactionEffects;
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 
 pub const TX_SOCKET_PATH: &str = "/tmp/sui_tx.sock";
@@ -59,14 +60,14 @@ impl TxHandler {
         }
     }
 
-    pub async fn send_tx_effects(
+    pub async fn send_tx_effects_and_events(
         &self,
         effects: &TransactionEffects,
-        events: &TransactionEvents,
+        events: Vec<SuiEvent>,
     ) -> Result<()> {
         // Pre-allocate buffer with exact size needed to avoid reallocations
         let effects_bytes = bcs::to_bytes(effects)?;
-        let events_bytes = bcs::to_bytes(events)?;
+        let events_bytes = bcs::to_bytes(&events)?;
         let len_bytes = (effects_bytes.len() as u32 + events_bytes.len() as u32).to_be_bytes();
 
         let mut final_bytes = Vec::with_capacity(4 + effects_bytes.len() + events_bytes.len());
