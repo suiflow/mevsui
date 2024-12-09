@@ -5,7 +5,7 @@ use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
     GenericNamespaced, ListenerOptions,
 };
-use sui_types::effects::TransactionEffects;
+use sui_types::effects::{TransactionEffects, TransactionEvents};
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 
 pub const TX_SOCKET_PATH: &str = "/tmp/sui_tx.sock";
@@ -59,17 +59,27 @@ impl TxHandler {
         }
     }
 
-    pub async fn send_tx_effects(&self, effects: &TransactionEffects) -> Result<()> {
+    pub async fn send_tx_effects(
+        &self,
+        effects: &TransactionEffects,
+        events: &TransactionEvents,
+    ) -> Result<()> {
+        // Pre-allocate buffer with exact size needed to avoid reallocations
         let effects_bytes = bcs::to_bytes(effects)?;
-        let len = (effects_bytes.len() as u32).to_be_bytes();
+        let events_bytes = bcs::to_bytes(events)?;
+        let len_bytes = (effects_bytes.len() as u32 + events_bytes.len() as u32).to_be_bytes();
+
+        let mut final_bytes = Vec::with_capacity(4 + effects_bytes.len() + events_bytes.len());
+        final_bytes.extend_from_slice(&len_bytes);
+        final_bytes.extend_from_slice(&effects_bytes);
+        final_bytes.extend_from_slice(&events_bytes);
 
         let mut conns = self.conns.lock().await;
         let mut active_conns = Vec::new();
 
         while let Some(mut conn) = conns.pop() {
             let result: Result<()> = async {
-                conn.write_all(&len).await?;
-                conn.write_all(&effects_bytes).await?;
+                conn.write_all(&final_bytes).await?;
                 Ok(())
             }
             .await;
