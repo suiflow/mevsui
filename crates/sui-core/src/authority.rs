@@ -1517,10 +1517,6 @@ impl AuthorityState {
                 )
             })
             .collect::<Result<_, _>>()?;
-        let _ = self
-            .tx_handler
-            .send_tx_effects_and_events(effects, sui_events)
-            .await;
 
         let _scope: Option<mysten_metrics::MonitoredScopeGuard> =
             monitored_scope("Execution::commit_certificate");
@@ -1606,6 +1602,11 @@ impl AuthorityState {
 
         // commit_certificate finished, the tx is fully committed to the store.
         tx_guard.commit_tx();
+
+        let _ = self
+            .tx_handler
+            .send_tx_effects_and_events(effects, sui_events)
+            .await;
 
         // Notifies transaction manager about transaction and output objects committed.
         // This provides necessary information to transaction manager to start executing
