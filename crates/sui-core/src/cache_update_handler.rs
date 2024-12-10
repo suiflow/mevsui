@@ -102,7 +102,7 @@ impl CacheUpdateHandler {
             return;
         }
 
-        let serialized = match bincode::serialize(&packages) {
+        let serialized = match bcs::to_bytes(&packages) {
             Ok(serialized) => serialized,
             Err(e) => {
                 error!("Error serializing cache update: {}", e);
