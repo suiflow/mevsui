@@ -1,4 +1,3 @@
-use bincode;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
