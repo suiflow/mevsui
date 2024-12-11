@@ -247,6 +247,16 @@ impl TransactionCacheRead for ProxyCache {
 }
 
 impl ExecutionCacheWrite for ProxyCache {
+    fn update_underlying(&self) {
+        self.writeback_cache
+            .store
+            .perpetual_tables
+            .objects
+            .rocksdb
+            .try_catch_up_with_primary()
+            .unwrap();
+    }
+
     fn reload_objects(&self, objects: Vec<(ObjectID, Object)>) {
         self.reload_cached(objects);
     }
