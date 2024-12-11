@@ -232,6 +232,10 @@ impl TransactionCacheRead for ProxyCache {
 }
 
 impl ExecutionCacheWrite for ProxyCache {
+    fn reload_objects(&self, objects: Vec<ObjectID>) {
+        self.reload_cached(&objects);
+    }
+
     fn write_transaction_outputs(
         &self,
         epoch_id: EpochId,
