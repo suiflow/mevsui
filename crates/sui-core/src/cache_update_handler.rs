@@ -4,15 +4,12 @@ use std::sync::{
     Arc,
 };
 use sui_types::base_types::ObjectID;
-use sui_types::committee::EpochId;
 use sui_types::object::Object;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 use tracing::{error, info};
-
-use crate::transaction_outputs::TransactionOutputs;
 
 const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
 

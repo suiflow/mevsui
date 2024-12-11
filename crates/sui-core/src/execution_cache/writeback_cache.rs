@@ -1195,24 +1195,12 @@ impl WritebackCache {
         assert_empty(&self.packages);
     }
 
-    pub fn reload_cached(&self, objects: &[ObjectID]) {
-        for object_id in objects {
-            self.cached.object_cache.invalidate(object_id);
-        }
-
-        // reload from db
-        for object_id in objects {
-            let obj = self.store.get_object(object_id);
-            if let Some(obj) = obj {
-                self.cached.object_by_id_cache.insert(
-                    object_id,
-                    LatestObjectCacheEntry::Object(obj.version(), obj.into()),
-                );
-            } else {
-                self.cached
-                    .object_by_id_cache
-                    .insert(object_id, LatestObjectCacheEntry::NonExistent);
-            }
+    pub fn reload_cached(&self, objects: Vec<(ObjectID, Object)>) {
+        for (object_id, object) in objects {
+            self.cached.object_by_id_cache.insert(
+                &object_id,
+                LatestObjectCacheEntry::Object(object.version(), object.into()),
+            );
         }
     }
 
@@ -1875,8 +1863,8 @@ impl TransactionCacheRead for WritebackCache {
 }
 
 impl ExecutionCacheWrite for WritebackCache {
-    fn reload_objects(&self, objects: Vec<ObjectID>) {
-        self.reload_cached(&objects);
+    fn reload_objects(&self, objects: Vec<(ObjectID, Object)>) {
+        self.reload_cached(objects);
     }
 
     fn acquire_transaction_locks<'a>(
