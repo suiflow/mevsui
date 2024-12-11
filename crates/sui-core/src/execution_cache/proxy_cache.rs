@@ -94,6 +94,10 @@ impl ProxyCache {
         }
         *self.mode.write() = cache_type;
     }
+
+    async fn get_latest_from_db(&self, object_id: &ObjectID) -> Option<Object> {
+        self.passthrough_cache.get_object(object_id)
+    }
 }
 
 impl ObjectCacheRead for ProxyCache {
