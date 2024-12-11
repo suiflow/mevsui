@@ -253,7 +253,7 @@ impl TransactionCacheRead for PassthroughCache {
 }
 
 impl ExecutionCacheWrite for PassthroughCache {
-    fn reload_objects(&self, _objects: Vec<ObjectID>) {
+    fn reload_objects(&self, _objects: Vec<(ObjectID, Object)>) {
         // noop
     }
 
