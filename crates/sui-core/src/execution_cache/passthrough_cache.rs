@@ -253,6 +253,15 @@ impl TransactionCacheRead for PassthroughCache {
 }
 
 impl ExecutionCacheWrite for PassthroughCache {
+    fn update_underlying(&self) {
+        self.store
+            .perpetual_tables
+            .objects
+            .rocksdb
+            .try_catch_up_with_primary()
+            .unwrap();
+    }
+
     fn reload_objects(&self, _objects: Vec<(ObjectID, Object)>) {
         // noop
     }
