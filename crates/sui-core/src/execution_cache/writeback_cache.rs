@@ -347,6 +347,17 @@ impl CachedCommittedData {
         assert_empty(&self.executed_effects_digests);
         assert_empty(&self._transaction_objects);
     }
+
+    fn clear(&self) {
+        self.object_cache.invalidate_all();
+        self.object_by_id_cache.invalidate_all();
+        self.marker_cache.invalidate_all();
+        self.transactions.invalidate_all();
+        self.transaction_effects.invalidate_all();
+        self.transaction_events.invalidate_all();
+        self.executed_effects_digests.invalidate_all();
+        self._transaction_objects.invalidate_all();
+    }
 }
 
 fn assert_empty<K, V>(cache: &MokaCache<K, V>)
@@ -1185,7 +1196,7 @@ impl WritebackCache {
     }
 
     pub fn clear_cache_keep_packages(&self) {
-        self.cached.clear_and_assert_empty();
+        self.cached.clear();
     }
 }
 
