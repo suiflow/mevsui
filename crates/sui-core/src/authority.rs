@@ -1585,23 +1585,15 @@ impl AuthorityState {
             .write_transaction_outputs(epoch_store.epoch(), Arc::clone(&transaction_outputs))
             .await;
 
-        // self.cache_update_handler
-        //     .update_cache(package_updates)
-        //     .await;
-
-        // self.cache_update_handler
-        //     .update_all(epoch_store.epoch(), transaction_outputs)
-        //     .await;
-
         if !certificate.transaction_data().is_system_tx() {
             let changed_objects = transaction_outputs
                 .written
-                .keys()
-                .copied()
+                .iter()
+                .map(|(id, obj)| (*id, obj.clone()))
                 .collect::<Vec<_>>();
-            if !changed_objects.is_empty() && !sui_events.is_empty() {
+            if !changed_objects.is_empty() {
                 self.cache_update_handler
-                    .notify_reload_objects(changed_objects)
+                    .notify_written(changed_objects)
                     .await;
             }
         }

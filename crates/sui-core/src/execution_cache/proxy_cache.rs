@@ -102,6 +102,21 @@ impl ProxyCache {
     pub fn reload_cached(&self, objects: &[ObjectID]) {
         self.writeback_cache.reload_cached(objects);
     }
+
+    pub fn catch_up_with_primary(&self) {
+        self.writeback_cache
+            .store
+            .clone()
+            .perpetual_tables
+            .objects
+            .rocksdb
+            .try_catch_up_with_primary()
+            .unwrap();
+    }
+
+    pub fn clear_cached(&self) {
+        self.writeback_cache.clear();
+    }
 }
 
 impl ObjectCacheRead for ProxyCache {

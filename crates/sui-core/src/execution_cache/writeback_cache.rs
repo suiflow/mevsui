@@ -346,6 +346,17 @@ impl CachedCommittedData {
         assert_empty(&self.executed_effects_digests);
         assert_empty(&self._transaction_objects);
     }
+
+    fn clear(&self) {
+        self.object_cache.invalidate_all();
+        self.object_by_id_cache.invalidate_all();
+        self.marker_cache.invalidate_all();
+        self.transactions.invalidate_all();
+        self.transaction_effects.invalidate_all();
+        self.transaction_events.invalidate_all();
+        self.executed_effects_digests.invalidate_all();
+        self._transaction_objects.invalidate_all();
+    }
 }
 
 fn assert_empty<K, V>(cache: &MokaCache<K, V>)
@@ -377,7 +388,7 @@ pub struct WritebackCache {
     object_locks: ObjectLocks,
 
     executed_effects_digests_notify_read: NotifyRead<TransactionDigest, TransactionEffectsDigest>,
-    store: Arc<AuthorityStore>,
+    pub store: Arc<AuthorityStore>,
     metrics: Arc<ExecutionCacheMetrics>,
 }
 
@@ -1162,14 +1173,6 @@ impl WritebackCache {
     }
 
     pub fn reload_cached(&self, objects: &[ObjectID]) {
-        self.store
-            .clone()
-            .perpetual_tables
-            .objects
-            .rocksdb
-            .try_catch_up_with_primary()
-            .unwrap();
-
         for object_id in objects {
             self.cached.object_cache.invalidate(object_id);
         }
@@ -1188,6 +1191,10 @@ impl WritebackCache {
                     .insert(object_id, LatestObjectCacheEntry::NonExistent);
             }
         }
+    }
+
+    pub fn clear(&self) {
+        self.cached.clear();
     }
 }
 
