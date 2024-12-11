@@ -95,8 +95,13 @@ impl ProxyCache {
         *self.mode.write() = cache_type;
     }
 
-    async fn get_latest_from_db(&self, object_id: &ObjectID) -> Option<Object> {
+    #[allow(dead_code)]
+    pub async fn get_latest_from_db(&self, object_id: &ObjectID) -> Option<Object> {
         self.passthrough_cache.get_object(object_id)
+    }
+
+    pub fn clear_cache_keep_packages(&self) {
+        self.writeback_cache.clear_cache_keep_packages();
     }
 }
 
