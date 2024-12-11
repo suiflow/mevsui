@@ -1183,6 +1183,10 @@ impl WritebackCache {
         self.packages.invalidate_all();
         assert_empty(&self.packages);
     }
+
+    pub fn clear_cache_keep_packages(&self) {
+        self.cached.clear_and_assert_empty();
+    }
 }
 
 impl ExecutionCacheAPI for WritebackCache {}
