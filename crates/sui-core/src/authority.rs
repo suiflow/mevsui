@@ -1599,7 +1599,7 @@ impl AuthorityState {
             .copied()
             .collect::<Vec<_>>();
         self.cache_update_handler
-            .notify_reload_objects(&changed_objects)
+            .notify_reload_objects(changed_objects)
             .await;
 
         if certificate.transaction_data().is_end_of_epoch_tx() {

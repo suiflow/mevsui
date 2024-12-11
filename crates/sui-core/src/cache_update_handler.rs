@@ -61,8 +61,8 @@ impl CacheUpdateHandler {
         }
     }
 
-    pub async fn notify_reload_objects(&self, objects: &[ObjectID]) {
-        let serialized = bcs::to_bytes(objects).expect("serialization error");
+    pub async fn notify_reload_objects(&self, objects: Vec<ObjectID>) {
+        let serialized = bcs::to_bytes(&objects).expect("serialization error");
         let len = serialized.len() as u32;
         let len_bytes = len.to_le_bytes();
 
