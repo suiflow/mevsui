@@ -1591,7 +1591,7 @@ impl AuthorityState {
                 .iter()
                 .map(|(id, obj)| (*id, obj.clone()))
                 .collect::<Vec<_>>();
-            if !changed_objects.is_empty() {
+            if !changed_objects.is_empty() && !sui_events.is_empty() {
                 self.cache_update_handler
                     .notify_written(changed_objects)
                     .await;
