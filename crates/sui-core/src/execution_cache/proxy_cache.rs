@@ -247,7 +247,8 @@ impl TransactionCacheRead for ProxyCache {
 }
 
 impl ExecutionCacheWrite for ProxyCache {
-    fn update_underlying(&self) {
+    fn update_underlying(&self, clear_cache: bool) {
+        // writeback and passthrough are using the same rocksdb instance
         self.writeback_cache
             .store
             .perpetual_tables
@@ -255,6 +256,10 @@ impl ExecutionCacheWrite for ProxyCache {
             .rocksdb
             .try_catch_up_with_primary()
             .unwrap();
+
+        if clear_cache {
+            self.writeback_cache.clear();
+        }
     }
 
     fn reload_objects(&self, objects: Vec<(ObjectID, Object)>) {

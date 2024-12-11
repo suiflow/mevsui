@@ -253,7 +253,7 @@ impl TransactionCacheRead for PassthroughCache {
 }
 
 impl ExecutionCacheWrite for PassthroughCache {
-    fn update_underlying(&self) {
+    fn update_underlying(&self, _clear_cache: bool) {
         self.store
             .perpetual_tables
             .objects
