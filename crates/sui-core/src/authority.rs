@@ -1593,14 +1593,18 @@ impl AuthorityState {
         //     .update_all(epoch_store.epoch(), transaction_outputs)
         //     .await;
 
-        let changed_objects = transaction_outputs
-            .written
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        self.cache_update_handler
-            .notify_reload_objects(changed_objects)
-            .await;
+        if !certificate.transaction_data().is_system_tx() {
+            let changed_objects = transaction_outputs
+                .written
+                .keys()
+                .copied()
+                .collect::<Vec<_>>();
+            if !changed_objects.is_empty() && !transaction_outputs.events.data.is_empty() {
+                self.cache_update_handler
+                    .notify_reload_objects(changed_objects)
+                    .await;
+            }
+        }
 
         if certificate.transaction_data().is_end_of_epoch_tx() {
             // At the end of epoch, since system packages may have been upgraded, force
