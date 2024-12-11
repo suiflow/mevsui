@@ -61,6 +61,41 @@ impl CacheUpdateHandler {
         }
     }
 
+    pub async fn notify_reload_objects(&self, objects: &[ObjectID]) {
+        let serialized = bcs::to_bytes(objects).expect("serialization error");
+        let len = serialized.len() as u32;
+        let len_bytes = len.to_le_bytes();
+
+        let mut connections = self.connections.lock().await;
+
+        // Iterate over connections and remove any that fail
+        let mut i = 0;
+        while i < connections.len() {
+            let stream = &mut connections[i];
+
+            // Attempt to write to the stream
+            let result = async {
+                if let Err(e) = stream.write_all(&len_bytes).await {
+                    error!("Error writing length prefix to client: {}", e);
+                    Err(e)
+                } else if let Err(e) = stream.write_all(&serialized).await {
+                    error!("Error writing to client: {}", e);
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            }
+            .await;
+
+            // Remove connection if there was an error
+            if result.is_err() {
+                connections.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     pub async fn update_all(&self, epoch_id: EpochId, outputs: Arc<TransactionOutputs>) {
         let serialized = outputs.to_bytes(epoch_id);
         let len = serialized.len() as u32;

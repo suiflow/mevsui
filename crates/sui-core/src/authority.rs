@@ -1585,13 +1585,22 @@ impl AuthorityState {
             .write_transaction_outputs(epoch_store.epoch(), Arc::clone(&transaction_outputs))
             .await;
 
-        self.cache_update_handler
-            .update_cache(package_updates)
-            .await;
+        // self.cache_update_handler
+        //     .update_cache(package_updates)
+        //     .await;
 
         // self.cache_update_handler
         //     .update_all(epoch_store.epoch(), transaction_outputs)
         //     .await;
+
+        let changed_objects = transaction_outputs
+            .written
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        self.cache_update_handler
+            .notify_reload_objects(&changed_objects)
+            .await;
 
         if certificate.transaction_data().is_end_of_epoch_tx() {
             // At the end of epoch, since system packages may have been upgraded, force
