@@ -1185,6 +1185,14 @@ impl WritebackCache {
     }
 
     pub fn reload_cached(&self, objects: &[ObjectID]) {
+        self.store
+            .clone()
+            .perpetual_tables
+            .objects
+            .rocksdb
+            .try_catch_up_with_primary()
+            .unwrap();
+
         for object_id in objects {
             self.cached.object_cache.invalidate(object_id);
         }
