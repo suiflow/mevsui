@@ -347,17 +347,6 @@ impl CachedCommittedData {
         assert_empty(&self.executed_effects_digests);
         assert_empty(&self._transaction_objects);
     }
-
-    fn clear(&self) {
-        self.object_cache.invalidate_all();
-        self.object_by_id_cache.invalidate_all();
-        self.marker_cache.invalidate_all();
-        self.transactions.invalidate_all();
-        self.transaction_effects.invalidate_all();
-        self.transaction_events.invalidate_all();
-        self.executed_effects_digests.invalidate_all();
-        self._transaction_objects.invalidate_all();
-    }
 }
 
 fn assert_empty<K, V>(cache: &MokaCache<K, V>)
@@ -1195,8 +1184,25 @@ impl WritebackCache {
         assert_empty(&self.packages);
     }
 
-    pub fn clear_cache_keep_packages(&self) {
-        self.cached.clear();
+    pub fn reload_cached(&self, objects: &[ObjectID]) {
+        for object_id in objects {
+            self.cached.object_cache.invalidate(object_id);
+        }
+
+        // reload from db
+        for object_id in objects {
+            let obj = self.store.get_object(object_id);
+            if let Some(obj) = obj {
+                self.cached.object_by_id_cache.insert(
+                    object_id,
+                    LatestObjectCacheEntry::Object(obj.version(), obj.into()),
+                );
+            } else {
+                self.cached
+                    .object_by_id_cache
+                    .insert(object_id, LatestObjectCacheEntry::NonExistent);
+            }
+        }
     }
 }
 
