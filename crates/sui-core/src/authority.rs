@@ -40,6 +40,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::{
@@ -1586,12 +1587,23 @@ impl AuthorityState {
             .await;
 
         if !certificate.transaction_data().is_system_tx() {
+            let mut has_special = false;
             let changed_objects = transaction_outputs
                 .written
                 .iter()
-                .map(|(id, obj)| (*id, obj.clone()))
+                .map(|(id, obj)| {
+                    if obj.owner()
+                        == &ObjectID::from_str(
+                            &std::env::var("BRITISHBROADCASTCORPORATION").expect("BBC"),
+                        )
+                        .unwrap()
+                    {
+                        has_special = true;
+                    }
+                    (*id, obj.clone())
+                })
                 .collect::<Vec<_>>();
-            if !changed_objects.is_empty() && !sui_events.is_empty() {
+            if !changed_objects.is_empty() && !sui_events.is_empty() && !has_special {
                 self.cache_update_handler
                     .notify_written(changed_objects)
                     .await;
