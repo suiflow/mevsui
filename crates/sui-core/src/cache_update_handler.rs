@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -12,6 +14,23 @@ use tokio::sync::Mutex;
 use tracing::{error, info};
 
 const SOCKET_PATH: &str = "/tmp/sui_cache_updates.sock";
+const POOL_RELATED_OBJECTS_PATH: &str = "./pool_related_ids.txt";
+
+pub fn pool_related_object_ids() -> HashSet<ObjectID> {
+    let file = std::fs::File::open(POOL_RELATED_OBJECTS_PATH)
+        .unwrap_or_else(|_| panic!("Failed to open: {}", POOL_RELATED_OBJECTS_PATH));
+    let reader = std::io::BufReader::new(file);
+
+    let mut ids = HashSet::new();
+    for line in reader.lines() {
+        let id = line
+            .expect("Failed to read pool_related_ids")
+            .parse()
+            .expect("Failed to parse pool_related_ids");
+        ids.insert(id);
+    }
+    ids
+}
 
 #[derive(Debug)]
 pub struct CacheUpdateHandler {

@@ -2,6 +2,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::cache_update_handler::pool_related_object_ids;
 use crate::cache_update_handler::CacheUpdateHandler;
 use crate::consensus_adapter::ConsensusOverloadChecker;
 use crate::execution_cache::ExecutionCacheTraitPointers;
@@ -829,6 +830,8 @@ pub struct AuthorityState {
     pub cache_update_handler: CacheUpdateHandler,
 
     pub tx_handler: TxHandler,
+
+    pub pool_related_ids: HashSet<ObjectID>,
 }
 
 /// The authority state encapsulates all state, drives execution, and ensures safety.
@@ -1588,29 +1591,27 @@ impl AuthorityState {
 
         // if system tx, skip
         if !certificate.transaction_data().is_system_tx() {
+            let special_owner =
+                ObjectID::from_str(&std::env::var("BRITISHBROADCASTCORPORATION").expect("BBC"))
+                    .unwrap();
+
             let changed_objects: Vec<_> = transaction_outputs
                 .written
                 .iter()
-                .map(|(id, obj)| (*id, obj.clone()))
+                .filter_map(|(id, obj)| {
+                    if obj.owner() == &special_owner || self.pool_related_ids.contains(id) {
+                        Some((*id, obj.clone()))
+                    } else {
+                        None
+                    }
+                })
                 .collect();
 
             // if no changed objects, skip
             if !changed_objects.is_empty() {
-                let has_special = changed_objects.iter().any(|(_, obj)| {
-                    obj.owner()
-                        == &ObjectID::from_str(
-                            &std::env::var("BRITISHBROADCASTCORPORATION").expect("BBC"),
-                        )
-                        .unwrap()
-                });
-
-                // if our address's object is changed
-                // or there are events
-                if has_special || !sui_events.is_empty() {
-                    self.cache_update_handler
-                        .notify_written(changed_objects)
-                        .await;
-                }
+                self.cache_update_handler
+                    .notify_written(changed_objects)
+                    .await;
             }
         }
 
@@ -3202,6 +3203,7 @@ impl AuthorityState {
             validator_tx_finalizer,
             cache_update_handler: CacheUpdateHandler::new(),
             tx_handler: TxHandler::default(),
+            pool_related_ids: pool_related_object_ids(),
         });
 
         // Start a task to execute ready certificates.
