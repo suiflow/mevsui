@@ -1,12 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use tracing::trace;
+use tracing::{debug, trace};
 
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
 };
+use sui_types::base_types::ObjectID;
 
 pub struct ExecutionCacheMetrics {
     pub(crate) pending_notify_read: IntGauge,
@@ -108,8 +109,17 @@ impl ExecutionCacheMetrics {
             .inc();
     }
 
-    pub(crate) fn record_cache_miss(&self, request_type: &'static str, level: &'static str) {
-        trace!(target: "cache_metrics", "Cache miss: {} {}", request_type, level);
+    pub(crate) fn record_cache_miss(
+        &self,
+        request_type: &'static str,
+        level: &'static str,
+        object_id: Option<&ObjectID>,
+    ) {
+        if let Some(id) = object_id {
+            debug!(target: "cache_metrics", "Cache miss: {} {} object_id: {}", request_type, level, id);
+        } else {
+            debug!(target: "cache_metrics", "Cache miss: {} {}", request_type, level);
+        }
         self.cache_misses
             .with_label_values(&[request_type, level])
             .inc();

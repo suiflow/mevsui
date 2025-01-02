@@ -394,7 +394,7 @@ pub struct WritebackCache {
 }
 
 macro_rules! check_cache_entry_by_version {
-    ($self: ident, $table: expr, $level: expr, $cache: expr, $version: expr) => {
+    ($self: ident, $table: expr, $level: expr, $cache: expr, $version: expr, $object_id: expr) => {
         $self.metrics.record_cache_request($table, $level);
         if let Some(cache) = $cache {
             if let Some(entry) = cache.get(&$version) {
@@ -411,12 +411,14 @@ macro_rules! check_cache_entry_by_version {
                 }
             }
         }
-        $self.metrics.record_cache_miss($table, $level);
+        $self
+            .metrics
+            .record_cache_miss($table, $level, Some(&$object_id));
     };
 }
 
 macro_rules! check_cache_entry_by_latest {
-    ($self: ident, $table: expr, $level: expr, $cache: expr) => {
+    ($self: ident, $table: expr, $level: expr, $cache: expr, $object_id: expr) => {
         $self.metrics.record_cache_request($table, $level);
         if let Some(cache) = $cache {
             if let Some((version, entry)) = cache.get_highest() {
@@ -426,7 +428,9 @@ macro_rules! check_cache_entry_by_latest {
                 panic!("empty CachedVersionMap should have been removed");
             }
         }
-        $self.metrics.record_cache_miss($table, $level);
+        $self
+            .metrics
+            .record_cache_miss($table, $level, Some(&$object_id));
     };
 }
 
@@ -577,14 +581,16 @@ impl WritebackCache {
                     "object_by_version",
                     "uncommitted",
                     dirty_entry,
-                    version
+                    version,
+                    object_id
                 );
                 check_cache_entry_by_version!(
                     self,
                     "object_by_version",
                     "committed",
                     cached_entry,
-                    version
+                    version,
+                    object_id
                 );
                 CacheResult::Miss
             },
@@ -671,7 +677,8 @@ impl WritebackCache {
                 }
             }
         } else {
-            self.metrics.record_cache_miss(request_type, "object_by_id");
+            self.metrics
+                .record_cache_miss(request_type, "object_by_id", Some(object_id));
         }
 
         Self::with_locked_cache_entries(
@@ -679,8 +686,20 @@ impl WritebackCache {
             &self.cached.object_cache,
             object_id,
             |dirty_entry, cached_entry| {
-                check_cache_entry_by_latest!(self, request_type, "uncommitted", dirty_entry);
-                check_cache_entry_by_latest!(self, request_type, "committed", cached_entry);
+                check_cache_entry_by_latest!(
+                    self,
+                    request_type,
+                    "uncommitted",
+                    dirty_entry,
+                    object_id
+                );
+                check_cache_entry_by_latest!(
+                    self,
+                    request_type,
+                    "committed",
+                    cached_entry,
+                    object_id
+                );
                 CacheResult::Miss
             },
         )
@@ -717,14 +736,16 @@ impl WritebackCache {
                     "marker_by_version",
                     "uncommitted",
                     dirty_entry,
-                    version
+                    version,
+                    object_id
                 );
                 check_cache_entry_by_version!(
                     self,
                     "marker_by_version",
                     "committed",
                     cached_entry,
-                    version
+                    version,
+                    object_id
                 );
                 CacheResult::Miss
             },
@@ -741,8 +762,20 @@ impl WritebackCache {
             &self.cached.marker_cache,
             &(epoch_id, *object_id),
             |dirty_entry, cached_entry| {
-                check_cache_entry_by_latest!(self, "marker_latest", "uncommitted", dirty_entry);
-                check_cache_entry_by_latest!(self, "marker_latest", "committed", cached_entry);
+                check_cache_entry_by_latest!(
+                    self,
+                    "marker_latest",
+                    "uncommitted",
+                    dirty_entry,
+                    object_id
+                );
+                check_cache_entry_by_latest!(
+                    self,
+                    "marker_latest",
+                    "committed",
+                    cached_entry,
+                    object_id
+                );
                 CacheResult::Miss
             },
         )
@@ -1243,7 +1276,8 @@ impl ObjectCacheRead for WritebackCache {
             self.metrics.record_cache_hit("package", "package_cache");
             return Ok(Some(p));
         } else {
-            self.metrics.record_cache_miss("package", "package_cache");
+            self.metrics
+                .record_cache_miss("package", "package_cache", Some(&package_id));
         }
 
         // We try the dirty objects cache as well before going to the database. This is necessary
@@ -1411,8 +1445,11 @@ impl ObjectCacheRead for WritebackCache {
                             return None;
                         }
                     } else {
-                        self.metrics
-                            .record_cache_miss("object_lt_or_eq_version", $level);
+                        self.metrics.record_cache_miss(
+                            "object_lt_or_eq_version",
+                            $level,
+                            Some(&object_id),
+                        );
                     }
                 }
             };
@@ -1450,7 +1487,7 @@ impl ObjectCacheRead for WritebackCache {
             }
         }
         self.metrics
-            .record_cache_miss("object_lt_or_eq_version", "object_by_id");
+            .record_cache_miss("object_lt_or_eq_version", "object_by_id", Some(&object_id));
 
         Self::with_locked_cache_entries(
             &self.dirty.objects,
@@ -1698,7 +1735,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some(tx.transaction.clone()));
                 }
                 self.metrics
-                    .record_cache_miss("transaction_block", "uncommitted");
+                    .record_cache_miss("transaction_block", "uncommitted", None);
 
                 self.metrics
                     .record_cache_request("transaction_block", "committed");
@@ -1708,7 +1745,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some(tx.clone()));
                 }
                 self.metrics
-                    .record_cache_miss("transaction_block", "committed");
+                    .record_cache_miss("transaction_block", "committed", None);
 
                 CacheResult::Miss
             },
@@ -1738,7 +1775,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some(*digest));
                 }
                 self.metrics
-                    .record_cache_miss("executed_effects_digests", "uncommitted");
+                    .record_cache_miss("executed_effects_digests", "uncommitted", None);
 
                 self.metrics
                     .record_cache_request("executed_effects_digests", "committed");
@@ -1748,7 +1785,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some(digest));
                 }
                 self.metrics
-                    .record_cache_miss("executed_effects_digests", "committed");
+                    .record_cache_miss("executed_effects_digests", "committed", None);
 
                 CacheResult::Miss
             },
@@ -1775,7 +1812,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some(effects.clone()));
                 }
                 self.metrics
-                    .record_cache_miss("transaction_effects", "uncommitted");
+                    .record_cache_miss("transaction_effects", "uncommitted", None);
 
                 self.metrics
                     .record_cache_request("transaction_effects", "committed");
@@ -1785,7 +1822,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(Some((*effects).clone()));
                 }
                 self.metrics
-                    .record_cache_miss("transaction_effects", "committed");
+                    .record_cache_miss("transaction_effects", "committed", None);
 
                 CacheResult::Miss
             },
@@ -1837,7 +1874,7 @@ impl TransactionCacheRead for WritebackCache {
                     return CacheResult::Hit(map_events(events));
                 }
                 self.metrics
-                    .record_cache_miss("transaction_events", "uncommitted");
+                    .record_cache_miss("transaction_events", "uncommitted", None);
 
                 self.metrics
                     .record_cache_request("transaction_events", "committed");
@@ -1853,7 +1890,7 @@ impl TransactionCacheRead for WritebackCache {
                 }
 
                 self.metrics
-                    .record_cache_miss("transaction_events", "committed");
+                    .record_cache_miss("transaction_events", "committed", None);
 
                 CacheResult::Miss
             },
