@@ -152,6 +152,15 @@ impl ExecutionCacheMetrics {
     }
 
     pub fn cache_misses_count(&self) -> u64 {
-        self.cache_misses.with_label_values(&["", ""]).get()
+        [
+            ["object_latest", "committed"],
+            ["object_latest", "uncommitted"],
+            ["object_latest", "object_by_id"],
+            ["package", "uncommitted"],
+            ["package", "committed"],
+        ]
+        .iter()
+        .map(|label| self.cache_misses.with_label_values(label).get())
+        .sum()
     }
 }
