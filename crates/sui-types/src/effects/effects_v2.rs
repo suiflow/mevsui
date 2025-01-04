@@ -450,11 +450,11 @@ impl TransactionEffectsV2 {
             .collect();
         let changed_objects: Vec<_> = changed_objects.into_iter().collect();
 
-        let gas_object_index = gas_object.map(|gas_id| {
+        let gas_object_index = gas_object.and_then(|gas_id| {
             changed_objects
                 .iter()
                 .position(|(id, _)| id == &gas_id)
-                .unwrap() as u32
+                .map(|pos| pos as u32)
         });
 
         let result = Self {
