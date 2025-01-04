@@ -167,34 +167,28 @@ pub mod checked {
                 })
                 .iter()
                 .sum();
-            let mut primary_gas_object = temporary_store
-                .objects()
-                .get(&gas_coin_id)
-                // unwrap should be safe because we checked that this exists in `self.objects()` above
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Invariant violation: gas coin not found in store in txn {}",
-                        self.tx_digest
-                    )
-                })
-                .clone();
+            let mut primary_gas_object = match temporary_store.objects().get(&gas_coin_id) {
+                Some(obj) => obj.clone(),
+                None => {
+                    return;
+                }
+            };
+
             // delete all gas objects except the primary_gas_object
             for (id, _version, _digest) in &self.gas_coins[1..] {
                 debug_assert_ne!(*id, primary_gas_object.id());
                 temporary_store.delete_input_object(id);
             }
-            primary_gas_object
-                .data
-                .try_as_move_mut()
-                // unwrap should be safe because we checked that the primary gas object was a coin object above.
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Invariant violation: invalid coin object in txn {}",
-                        self.tx_digest
-                    )
-                })
-                .set_coin_value_unsafe(new_balance);
-            temporary_store.mutate_input_object(primary_gas_object);
+
+            match primary_gas_object.data.try_as_move_mut() {
+                Some(move_obj) => {
+                    move_obj.set_coin_value_unsafe(new_balance);
+                    temporary_store.mutate_input_object(primary_gas_object);
+                }
+                None => {
+                    return;
+                }
+            }
         }
 
         //
