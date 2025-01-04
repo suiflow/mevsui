@@ -142,19 +142,19 @@ pub mod checked {
             let new_balance = self
                 .gas_coins
                 .iter()
-                .map(|obj_ref| {
-                    let obj = temporary_store.objects().get(&obj_ref.0).unwrap();
+                .filter_map(|obj_ref| {
+                    let obj = temporary_store.objects().get(&obj_ref.0)?;
                     let Data::Move(move_obj) = &obj.data else {
-                        return Err(ExecutionError::invariant_violation(
+                        return Some(Err(ExecutionError::invariant_violation(
                             "Provided non-gas coin object as input for gas!",
-                        ));
+                        )));
                     };
                     if !move_obj.type_().is_gas_coin() {
-                        return Err(ExecutionError::invariant_violation(
+                        return Some(Err(ExecutionError::invariant_violation(
                             "Provided non-gas coin object as input for gas!",
-                        ));
+                        )));
                     }
-                    Ok(move_obj.get_coin_value_unsafe())
+                    Some(Ok(move_obj.get_coin_value_unsafe()))
                 })
                 .collect::<Result<Vec<u64>, ExecutionError>>()
                 // transaction and certificate input checks must have insured that all gas coins
@@ -326,10 +326,16 @@ pub mod checked {
                 let cost_summary = self.gas_status.summary();
                 let gas_used = cost_summary.net_gas_usage();
 
-                let mut gas_object = temporary_store.read_object(&gas_object_id).unwrap().clone();
-                deduct_gas(&mut gas_object, gas_used);
-                #[skip_checked_arithmetic]
-                trace!(gas_used, gas_obj_id =? gas_object.id(), gas_obj_ver =? gas_object.version(), "Updated gas object");
+                let gas_object = match temporary_store.read_object(&gas_object_id) {
+                    Some(obj) => {
+                        let mut obj = obj.clone();
+                        deduct_gas(&mut obj, gas_used);
+                        #[skip_checked_arithmetic]
+                        trace!(gas_used, gas_obj_id =? obj.id(), gas_obj_ver =? obj.version(), "Updated gas object");
+                        obj
+                    }
+                    None => return GasCostSummary::default(), // Return early if gas object not found
+                };
 
                 temporary_store.mutate_input_object(gas_object);
                 cost_summary
