@@ -1242,9 +1242,10 @@ impl WritebackCache {
 
     pub fn reload_cached(&self, objects: Vec<(ObjectID, Object)>) {
         for (object_id, object) in objects {
-            self.cached.object_by_id_cache.insert(
+            let _ = self.cached.object_by_id_cache.insert(
                 &object_id,
                 LatestObjectCacheEntry::Object(object.version(), object.into()),
+                Ticket::Write,
             );
         }
     }
