@@ -462,7 +462,8 @@ impl WritebackCache {
             executed_effects_digests_notify_read: NotifyRead::new(),
             store,
             metrics,
-            pool_related_ids: Arc::new(pool_related_object_ids()),
+            // pool_related_ids: Arc::new(pool_related_object_ids()),
+            pool_related_ids: Arc::new(DashSet::new()),
             pool_related_file: Arc::new(StdMutex::new(pool_related_file)),
         }
     }
@@ -1266,13 +1267,13 @@ impl WritebackCache {
         }
     }
 
-    fn record_pool_related_id(&self, object_id: &ObjectID) {
-        if !self.pool_related_ids.contains(object_id) {
-            self.pool_related_ids.insert(*object_id);
-            if let Ok(mut file) = self.pool_related_file.lock() {
-                let _ = writeln!(file, "{}", object_id);
-            }
-        }
+    fn record_pool_related_id(&self, _object_id: &ObjectID) {
+        // if !self.pool_related_ids.contains(object_id) {
+        //     self.pool_related_ids.insert(*object_id);
+        //     if let Ok(mut file) = self.pool_related_file.lock() {
+        //         let _ = writeln!(file, "{}", object_id);
+        //     }
+        // }
     }
 }
 
