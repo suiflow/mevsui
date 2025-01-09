@@ -426,6 +426,8 @@ pub struct WritebackCache {
     executed_effects_digests_notify_read: NotifyRead<TransactionDigest, TransactionEffectsDigest>,
     pub store: Arc<AuthorityStore>,
     metrics: Arc<ExecutionCacheMetrics>,
+
+    enable_record_pool_ids: bool,
 }
 
 macro_rules! check_cache_entry_by_version {
@@ -475,6 +477,8 @@ impl WritebackCache {
             .max_capacity(config.package_cache_size())
             .build();
 
+        let enable_record_pool_ids = std::env::var("ENABLE_RECORD_POOL_RELATED_ID").is_ok();
+
         Self {
             dirty: UncommittedData::new(),
             cached: CachedCommittedData::new(config),
@@ -483,6 +487,7 @@ impl WritebackCache {
             executed_effects_digests_notify_read: NotifyRead::new(),
             store,
             metrics,
+            enable_record_pool_ids,
         }
     }
 
@@ -1286,9 +1291,11 @@ impl WritebackCache {
     }
 
     fn record_pool_related_id(&self, object_id: &ObjectID) {
-        POOL_RELATED_STATE
-            .get_or_init(PoolRelatedState::new)
-            .record_pool_related_id(object_id);
+        if self.enable_record_pool_ids {
+            POOL_RELATED_STATE
+                .get_or_init(PoolRelatedState::new)
+                .record_pool_related_id(object_id);
+        }
     }
 }
 
