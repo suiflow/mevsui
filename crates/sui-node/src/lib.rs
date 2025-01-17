@@ -13,7 +13,6 @@ use arc_swap::ArcSwap;
 use fastcrypto_zkp::bn254::zk_login::JwkId;
 use fastcrypto_zkp::bn254::zk_login::OIDCProvider;
 use futures::TryFutureExt;
-use ipc_server::build_ipc_server;
 use mysten_network::server::SUI_TLS_SERVER_NAME;
 use prometheus::Registry;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -26,9 +25,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use sui_core::authority::authority_store_tables::AuthorityPerpetualTablesOptions;
+use sui_core::authority::backpressure::BackpressureManager;
 use sui_core::authority::epoch_start_configuration::EpochFlag;
 use sui_core::authority::RandomnessRoundReceiver;
-use sui_core::authority::CHAIN_IDENTIFIER;
 use sui_core::consensus_adapter::ConsensusClient;
 use sui_core::consensus_manager::UpdatableConsensusClient;
 use sui_core::epoch::randomness::RandomnessManager;
@@ -142,7 +141,6 @@ use crate::metrics::{GrpcMetrics, SuiNodeMetrics};
 
 pub mod admin;
 mod handle;
-mod ipc_server;
 pub mod metrics;
 
 pub struct ValidatorComponents {
@@ -231,7 +229,6 @@ pub struct SuiNode {
     validator_components: Mutex<Option<ValidatorComponents>>,
     /// The http server responsible for serving JSON-RPC as well as the experimental rest service
     _http_server: Option<tokio::task::JoinHandle<()>>,
-    _ipc_server: Option<tokio::task::JoinHandle<()>>,
     state: Arc<AuthorityState>,
     transaction_orchestrator: Option<Arc<TransactiondOrchestrator<NetworkAuthorityClient>>>,
     registry_service: RegistryService,
@@ -250,6 +247,8 @@ pub struct SuiNode {
 
     /// Broadcast channel to notify state-sync for new validator peers.
     trusted_peer_change_tx: watch::Sender<TrustedPeerChangeEvent>,
+
+    backpressure_manager: Arc<BackpressureManager>,
 
     _db_checkpoint_handle: Option<tokio::sync::broadcast::Sender<()>>,
 
@@ -478,6 +477,10 @@ impl SuiNode {
             .database_is_empty()
             .expect("Database read should not fail at init.");
 
+        let checkpoint_store = CheckpointStore::new(&config.db_path().join("checkpoints"));
+        let backpressure_manager =
+            BackpressureManager::new_from_checkpoint_store(&checkpoint_store);
+
         let store =
             AuthorityStore::open(perpetual_tables, &genesis, &config, &prometheus_registry).await?;
 
@@ -496,6 +499,7 @@ impl SuiNode {
             &epoch_start_configuration,
             &prometheus_registry,
             &store,
+            backpressure_manager.clone(),
         );
 
         let auth_agg = {
@@ -562,7 +566,6 @@ impl SuiNode {
 
         info!("creating checkpoint store");
 
-        let checkpoint_store = CheckpointStore::new(&config.db_path().join("checkpoints"));
         checkpoint_store.insert_genesis_checkpoint(
             genesis.checkpoint(),
             genesis.checkpoint_contents().clone(),
@@ -591,10 +594,7 @@ impl SuiNode {
             None
         };
 
-        let rpc_index = if is_full_node
-            && config.enable_experimental_rest_api
-            && config.rpc.as_ref().is_some_and(|rpc| rpc.enable_indexing())
-        {
+        let rpc_index = if is_full_node && config.rpc().is_some_and(|rpc| rpc.enable_indexing()) {
             Some(Arc::new(RpcIndexStore::new(
                 &config.db_path(),
                 &store,
@@ -607,8 +607,6 @@ impl SuiNode {
         };
 
         let chain_identifier = ChainIdentifier::from(*genesis.checkpoint().digest());
-        // It's ok if the value is already set due to data races.
-        let _ = CHAIN_IDENTIFIER.set(chain_identifier);
 
         info!("creating archive reader");
         // Create network
@@ -658,8 +656,12 @@ impl SuiNode {
 
         info!("start snapshot upload");
         // Start uploading state snapshot to remote store
-        let state_snapshot_handle =
-            Self::start_state_snapshot(&config, &prometheus_registry, checkpoint_store.clone())?;
+        let state_snapshot_handle = Self::start_state_snapshot(
+            &config,
+            &prometheus_registry,
+            checkpoint_store.clone(),
+            chain_identifier,
+        )?;
 
         // Start uploading db checkpoints to remote store
         info!("start db checkpoint");
@@ -708,6 +710,7 @@ impl SuiNode {
             config.indirect_objects_threshold,
             archive_readers,
             validator_tx_finalizer,
+            chain_identifier,
         )
         .await;
         // ensure genesis txn was executed
@@ -765,16 +768,6 @@ impl SuiNode {
             None
         };
 
-        let metrics = Arc::new(JsonRpcMetrics::new(&prometheus_registry));
-
-        let ipc_server = build_ipc_server(
-            state.clone(),
-            &transaction_orchestrator.clone(),
-            &config,
-            metrics.clone(),
-        )
-        .await?;
-
         let http_server = build_http_server(
             state.clone(),
             state_sync_store,
@@ -783,7 +776,6 @@ impl SuiNode {
             &prometheus_registry,
             custom_rpc_runtime,
             software_version,
-            metrics,
         )
         .await?;
 
@@ -828,6 +820,7 @@ impl SuiNode {
                 state_sync_handle.clone(),
                 randomness_handle.clone(),
                 Arc::downgrade(&accumulator),
+                backpressure_manager.clone(),
                 connection_monitor_status.clone(),
                 &registry_service,
                 sui_node_metrics.clone(),
@@ -848,7 +841,6 @@ impl SuiNode {
             config,
             validator_components: Mutex::new(validator_components),
             _http_server: http_server,
-            _ipc_server: ipc_server,
             state,
             transaction_orchestrator,
             registry_service,
@@ -863,6 +855,7 @@ impl SuiNode {
             end_of_epoch_channel,
             connection_monitor_status,
             trusted_peer_change_tx,
+            backpressure_manager,
 
             _db_checkpoint_handle: db_checkpoint_handle,
 
@@ -970,6 +963,7 @@ impl SuiNode {
         config: &NodeConfig,
         prometheus_registry: &Registry,
         checkpoint_store: Arc<CheckpointStore>,
+        chain_identifier: ChainIdentifier,
     ) -> Result<Option<tokio::sync::broadcast::Sender<()>>> {
         if let Some(remote_store_config) = &config.state_snapshot_write_config.object_store_config {
             let snapshot_uploader = StateSnapshotUploader::new(
@@ -979,6 +973,7 @@ impl SuiNode {
                 60,
                 prometheus_registry,
                 checkpoint_store,
+                chain_identifier,
             )?;
             Ok(Some(snapshot_uploader.start()))
         } else {
@@ -1207,6 +1202,7 @@ impl SuiNode {
         state_sync_handle: state_sync::Handle,
         randomness_handle: randomness::Handle,
         accumulator: Weak<StateAccumulator>,
+        backpressure_manager: Arc<BackpressureManager>,
         connection_monitor_status: Arc<ConnectionMonitorStatus>,
         registry_service: &RegistryService,
         sui_node_metrics: Arc<SuiNodeMetrics>,
@@ -1279,6 +1275,7 @@ impl SuiNode {
             consensus_manager,
             consensus_store_pruner,
             accumulator,
+            backpressure_manager,
             validator_server_handle,
             validator_overload_monitor_handle,
             checkpoint_metrics,
@@ -1299,6 +1296,7 @@ impl SuiNode {
         consensus_manager: ConsensusManager,
         consensus_store_pruner: ConsensusStorePruner,
         accumulator: Weak<StateAccumulator>,
+        backpressure_manager: Arc<BackpressureManager>,
         validator_server_handle: JoinHandle<Result<()>>,
         validator_overload_monitor_handle: Option<JoinHandle<()>>,
         checkpoint_metrics: Arc<CheckpointMetrics>,
@@ -1359,6 +1357,7 @@ impl SuiNode {
             epoch_store.clone(),
             low_scoring_authorities,
             throughput_calculator,
+            backpressure_manager,
         );
 
         consensus_manager
@@ -1571,6 +1570,7 @@ impl SuiNode {
                 self.checkpoint_store.clone(),
                 self.state.clone(),
                 accumulator.clone(),
+                self.backpressure_manager.clone(),
                 self.config.checkpoint_executor_config.clone(),
                 checkpoint_executor_metrics.clone(),
             );
@@ -1769,6 +1769,7 @@ impl SuiNode {
                             consensus_manager,
                             consensus_store_pruner,
                             weak_accumulator,
+                            self.backpressure_manager.clone(),
                             validator_server_handle,
                             validator_overload_monitor_handle,
                             checkpoint_metrics,
@@ -1818,6 +1819,7 @@ impl SuiNode {
                             self.state_sync_handle.clone(),
                             self.randomness_handle.clone(),
                             weak_accumulator,
+                            self.backpressure_manager.clone(),
                             self.connection_monitor_status.clone(),
                             &self.registry_service,
                             self.metrics.clone(),
@@ -1991,8 +1993,8 @@ fn build_kv_store(
         )
     })?;
 
-    let network_str = match state.get_chain_identifier().map(|c| c.chain()) {
-        Some(Chain::Mainnet) => "/mainnet",
+    let network_str = match state.get_chain_identifier().chain() {
+        Chain::Mainnet => "/mainnet",
         _ => {
             info!("using local db only for kv store");
             return Ok(Arc::new(db_store));
@@ -2022,7 +2024,6 @@ pub async fn build_http_server(
     prometheus_registry: &Registry,
     _custom_runtime: Option<Handle>,
     software_version: &'static str,
-    metrics: Arc<JsonRpcMetrics>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>> {
     // Validators do not expose these APIs
     if config.consensus_config().is_some() {
@@ -2041,6 +2042,7 @@ pub async fn build_http_server(
 
         let kv_store = build_kv_store(&state, config, prometheus_registry)?;
 
+        let metrics = Arc::new(JsonRpcMetrics::new(prometheus_registry));
         server.register_module(ReadApi::new(
             state.clone(),
             kv_store.clone(),
@@ -2080,11 +2082,7 @@ pub async fn build_http_server(
                     reverse_registry_id,
                 )
             } else {
-                match CHAIN_IDENTIFIER
-                    .get()
-                    .expect("chain_id should be initialized")
-                    .chain()
-                {
+                match state.get_chain_identifier().chain() {
                     Chain::Mainnet => sui_json_rpc::name_service::NameServiceConfig::mainnet(),
                     Chain::Testnet => sui_json_rpc::name_service::NameServiceConfig::testnet(),
                     Chain::Unknown => sui_json_rpc::name_service::NameServiceConfig::default(),
@@ -2108,29 +2106,26 @@ pub async fn build_http_server(
 
     router = router.merge(json_rpc_router);
 
-    if config.enable_experimental_rest_api {
-        let mut rest_service = sui_rpc_api::RpcService::new(
+    let rpc_router = {
+        let mut rpc_service = sui_rpc_api::RpcService::new(
             Arc::new(RestReadStore::new(state.clone(), store)),
             software_version,
         );
 
         if let Some(config) = config.rpc.clone() {
-            rest_service.with_config(config);
+            rpc_service.with_config(config);
         }
 
-        rest_service.with_metrics(RpcMetrics::new(prometheus_registry));
+        rpc_service.with_metrics(RpcMetrics::new(prometheus_registry));
 
         if let Some(transaction_orchestrator) = transaction_orchestrator {
-            rest_service.with_executor(transaction_orchestrator.clone())
+            rpc_service.with_executor(transaction_orchestrator.clone())
         }
 
-        router = router.merge(rest_service.into_router());
-    }
-    // TODO: Remove this health check when experimental REST API becomes default
-    // This is a copy of the health check in crates/sui-rpc-api/src/health.rs
-    router = router
-        .route("/health", axum::routing::get(health_check_handler))
-        .route_layer(axum::Extension(state));
+        rpc_service.into_router().await
+    };
+
+    router = router.merge(rpc_router);
 
     let listener = tokio::net::TcpListener::bind(&config.json_rpc_address)
         .await
@@ -2151,51 +2146,6 @@ pub async fn build_http_server(
     info!(local_addr =? addr, "Sui JSON-RPC server listening on {addr}");
 
     Ok(Some(handle))
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct Threshold {
-    pub threshold_seconds: Option<u32>,
-}
-
-async fn health_check_handler(
-    axum::extract::Query(Threshold { threshold_seconds }): axum::extract::Query<Threshold>,
-    axum::Extension(state): axum::Extension<Arc<AuthorityState>>,
-) -> impl axum::response::IntoResponse {
-    if let Some(threshold_seconds) = threshold_seconds {
-        // Attempt to get the latest checkpoint
-        let summary = match state
-            .get_checkpoint_store()
-            .get_highest_executed_checkpoint()
-        {
-            Ok(Some(summary)) => summary,
-            Ok(None) => {
-                warn!("Highest executed checkpoint not found");
-                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "down");
-            }
-            Err(err) => {
-                warn!("Failed to retrieve highest executed checkpoint: {:?}", err);
-                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "down");
-            }
-        };
-
-        // Calculate the threshold time based on the provided threshold_seconds
-        let latest_chain_time = summary.timestamp();
-        let threshold =
-            std::time::SystemTime::now() - Duration::from_secs(threshold_seconds as u64);
-
-        // Check if the latest checkpoint is within the threshold
-        if latest_chain_time < threshold {
-            warn!(
-                ?latest_chain_time,
-                ?threshold,
-                "failing healthcheck due to checkpoint lag"
-            );
-            return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "down");
-        }
-    }
-    // if health endpoint is responding and no threshold is given, respond success
-    (axum::http::StatusCode::OK, "up")
 }
 
 #[cfg(not(test))]

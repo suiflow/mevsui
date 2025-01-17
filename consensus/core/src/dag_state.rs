@@ -502,10 +502,38 @@ impl DagState {
         blocks
     }
 
-    /// Returns the last block proposed per authority with `round < end_round`.
+    // Retrieves the cached block within the range [start_round, end_round) from a given authority.
+    // NOTE: end_round must be greater than GENESIS_ROUND.
+    pub(crate) fn get_last_cached_block_in_range(
+        &self,
+        authority: AuthorityIndex,
+        start_round: Round,
+        end_round: Round,
+    ) -> Option<VerifiedBlock> {
+        if end_round == GENESIS_ROUND {
+            panic!(
+                "Attempted to retrieve blocks earlier than the genesis round which is impossible"
+            );
+        }
+
+        let block_ref = self.recent_refs_by_authority[authority]
+            .range((
+                Included(BlockRef::new(start_round, authority, BlockDigest::MIN)),
+                Excluded(BlockRef::new(
+                    end_round,
+                    AuthorityIndex::MIN,
+                    BlockDigest::MIN,
+                )),
+            ))
+            .last()?;
+
+        self.recent_blocks.get(block_ref).cloned()
+    }
+
+    /// Returns the last block proposed per authority with `evicted round < round < end_round`.
     /// The method is guaranteed to return results only when the `end_round` is not earlier of the
-    /// available cached data for each authority, otherwise the method will panic - it's the caller's
-    /// responsibility to ensure that is not requesting filtering for earlier rounds .
+    /// available cached data for each authority (evicted round + 1), otherwise the method will panic.
+    /// It's the caller's responsibility to ensure that is not requesting for earlier rounds.
     /// In case of equivocation for an authority's last slot only one block will be returned (the last in order).
     pub(crate) fn get_last_cached_block_per_authority(
         &self,
@@ -1378,7 +1406,9 @@ mod test {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Attempted to check for slot A8 that is <= the last evicted round 8")]
+    #[should_panic(
+        expected = "Attempted to check for slot [0]8 that is <= the last evicted round 8"
+    )]
     async fn test_contains_cached_block_at_slot_panics_when_ask_out_of_range() {
         /// Only keep elements up to 2 rounds before the last committed round
         const CACHED_ROUNDS: Round = 2;
@@ -1420,7 +1450,7 @@ mod test {
 
     #[tokio::test]
     #[should_panic(
-        expected = "Attempted to check for slot B3 that is <= the last gc evicted round 3"
+        expected = "Attempted to check for slot [1]3 that is <= the last gc evicted round 3"
     )]
     async fn test_contains_cached_block_at_slot_panics_when_ask_out_of_range_gc_enabled() {
         /// Keep 2 rounds from the highest committed round. This is considered universal and minimum necessary blocks to hold
@@ -1955,7 +1985,7 @@ mod test {
 
     #[rstest]
     #[tokio::test]
-    async fn test_get_cached_last_block_per_authority(#[values(0, 1)] gc_depth: u32) {
+    async fn test_get_last_cached_block(#[values(0, 1)] gc_depth: u32) {
         // GIVEN
         const CACHED_ROUNDS: Round = 2;
         let (mut context, _) = Context::new_for_test(4);
@@ -2008,14 +2038,46 @@ mod test {
 
         // WHEN search for the latest blocks
         let end_round = 4;
-        let last_blocks = dag_state.get_last_cached_block_per_authority(end_round);
+        let expected_rounds = vec![0, 1, 2, 3];
 
         // THEN
-        assert_eq!(last_blocks[0].round(), 0);
-        assert_eq!(last_blocks[1].round(), 1);
-        assert_eq!(last_blocks[2].round(), 2);
-        assert_eq!(last_blocks[3].round(), 3);
+        let last_blocks = dag_state.get_last_cached_block_per_authority(end_round);
+        assert_eq!(
+            last_blocks.iter().map(|b| b.round()).collect::<Vec<_>>(),
+            expected_rounds
+        );
 
+        // THEN
+        for (i, expected_round) in expected_rounds.iter().enumerate() {
+            let round = dag_state
+                .get_last_cached_block_in_range(
+                    context.committee.to_authority_index(i).unwrap(),
+                    0,
+                    end_round,
+                )
+                .map(|b| b.round())
+                .unwrap_or_default();
+            assert_eq!(round, *expected_round, "Authority {i}");
+        }
+
+        // WHEN starting from round 2
+        let start_round = 2;
+        let expected_rounds = [0, 0, 2, 3];
+
+        // THEN
+        for (i, expected_round) in expected_rounds.iter().enumerate() {
+            let round = dag_state
+                .get_last_cached_block_in_range(
+                    context.committee.to_authority_index(i).unwrap(),
+                    start_round,
+                    end_round,
+                )
+                .map(|b| b.round())
+                .unwrap_or_default();
+            assert_eq!(round, *expected_round, "Authority {i}");
+        }
+
+        // WHEN we flush the DagState - after adding a commit with all the blocks, we expect this to trigger
         // WHEN we flush the DagState - after adding a commit with all the blocks, we expect this to trigger
         // a clean up in the internal cache. That will keep the all the blocks with rounds >= authority_commit_round - CACHED_ROUND.
         //
@@ -2025,18 +2087,32 @@ mod test {
 
         // AND we request before round 3
         let end_round = 3;
-        let last_blocks = dag_state.get_last_cached_block_per_authority(end_round);
+        let expected_rounds = vec![0, 1, 2, 2];
 
         // THEN
-        assert_eq!(last_blocks[0].round(), 0);
-        assert_eq!(last_blocks[1].round(), 1);
-        assert_eq!(last_blocks[2].round(), 2);
-        assert_eq!(last_blocks[3].round(), 2);
+        let last_blocks = dag_state.get_last_cached_block_per_authority(end_round);
+        assert_eq!(
+            last_blocks.iter().map(|b| b.round()).collect::<Vec<_>>(),
+            expected_rounds
+        );
+
+        // THEN
+        for (i, expected_round) in expected_rounds.iter().enumerate() {
+            let round = dag_state
+                .get_last_cached_block_in_range(
+                    context.committee.to_authority_index(i).unwrap(),
+                    0,
+                    end_round,
+                )
+                .map(|b| b.round())
+                .unwrap_or_default();
+            assert_eq!(round, *expected_round, "Authority {i}");
+        }
     }
 
     #[tokio::test]
     #[should_panic(
-        expected = "Attempted to request for blocks of rounds < 2, when the last evicted round is 1 for authority C"
+        expected = "Attempted to request for blocks of rounds < 2, when the last evicted round is 1 for authority [2]"
     )]
     async fn test_get_cached_last_block_per_authority_requesting_out_of_round_range() {
         // GIVEN
@@ -2083,7 +2159,7 @@ mod test {
 
     #[tokio::test]
     #[should_panic(
-        expected = "Attempted to request for blocks of rounds < 2, when the last evicted round is 1 for authority C"
+        expected = "Attempted to request for blocks of rounds < 2, when the last evicted round is 1 for authority [2]"
     )]
     async fn test_get_cached_last_block_per_authority_requesting_out_of_round_range_gc_enabled() {
         // GIVEN
