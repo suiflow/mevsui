@@ -2,6 +2,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::cache_update_handler::pool_related_object_ids;
 use crate::cache_update_handler::CacheUpdateHandler;
 use crate::consensus_adapter::ConsensusOverloadChecker;
 use crate::execution_cache::ExecutionCacheTraitPointers;
@@ -18,6 +19,7 @@ use arc_swap::{ArcSwap, Guard};
 use async_trait::async_trait;
 use authority_per_epoch_store::CertLockGuard;
 use chrono::prelude::*;
+use dashmap::DashSet;
 use fastcrypto::encoding::Base58;
 use fastcrypto::encoding::Encoding;
 use fastcrypto::hash::MultisetHash;
@@ -246,6 +248,7 @@ const SUISWAP_SWAP_EVENT: &str =
 const TURBOS_SWAP_EVENT: &str =
     "0x91bfbc386a41afcfd9b2533058d7e915a1d3829089cc268ff4333d54d6339ca1::pool::SwapEvent";
 
+#[allow(dead_code)]
 const fn swap_events() -> [&'static str; 12] {
     [
         ABEX_SWAP_EVENT,
@@ -872,6 +875,8 @@ pub struct AuthorityState {
     pub cache_update_handler: CacheUpdateHandler,
 
     pub tx_handler: TxHandler,
+
+    pub pool_related_ids: DashSet<ObjectID>,
 }
 
 /// The authority state encapsulates all state, drives execution, and ensures safety.
@@ -1649,23 +1654,26 @@ impl AuthorityState {
 
             // if no changed objects, skip
             if !changed_objects.is_empty() {
-                let has_special = changed_objects.iter().any(|(_, obj)| {
-                    obj.owner()
+                // our own object || pool related object
+                let need_notify = changed_objects.iter().any(|(id, obj)| {
+                    let is_our_object = obj.owner()
                         == &ObjectID::from_str(
                             &std::env::var("BRITISHBROADCASTCORPORATION").expect("BBC"),
                         )
-                        .unwrap()
+                        .unwrap();
+
+                    let is_pool_related = self.pool_related_ids.contains(id);
+                    is_our_object || is_pool_related
                 });
 
-                let has_swap_events = sui_events.iter().any(|event| {
-                    let event_type = event.type_.to_string();
-                    swap_events()
-                        .iter()
-                        .any(|swap_event| event_type.starts_with(swap_event))
-                });
+                // let has_swap_events = sui_events.iter().any(|event| {
+                //     let event_type = event.type_.to_string();
+                //     swap_events()
+                //         .iter()
+                //         .any(|swap_event| event_type.starts_with(swap_event))
+                // });
 
-                // if our address's object is changed or there are swapEvents
-                if has_special || has_swap_events {
+                if need_notify {
                     self.cache_update_handler
                         .notify_written(changed_objects)
                         .await;
@@ -3263,6 +3271,7 @@ impl AuthorityState {
             chain_identifier,
             cache_update_handler: CacheUpdateHandler::new(),
             tx_handler: TxHandler::default(),
+            pool_related_ids: pool_related_object_ids(),
         });
 
         // Start a task to execute ready certificates.
