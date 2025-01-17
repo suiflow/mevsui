@@ -8,12 +8,29 @@ use tap::Pipe;
 mod generated;
 pub use generated::*;
 
+mod file_descriptor_set {
+    /// Byte encoded FILE_DESCRIPTOR_SET.
+    pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!("generated/sui.node.v2.fds.bin");
+
+    #[cfg(test)]
+    mod tests {
+        use super::FILE_DESCRIPTOR_SET;
+        use prost::Message as _;
+
+        #[test]
+        fn file_descriptor_set_is_valid() {
+            prost_types::FileDescriptorSet::decode(FILE_DESCRIPTOR_SET).unwrap();
+        }
+    }
+}
+pub use file_descriptor_set::FILE_DESCRIPTOR_SET;
+
 //
 // BalanceChange
 //
 
-impl From<sui_sdk_types::types::BalanceChange> for BalanceChange {
-    fn from(value: sui_sdk_types::types::BalanceChange) -> Self {
+impl From<sui_sdk_types::BalanceChange> for BalanceChange {
+    fn from(value: sui_sdk_types::BalanceChange) -> Self {
         Self {
             address: Some(value.address.into()),
             coin_type: Some(value.coin_type.into()),
@@ -22,7 +39,7 @@ impl From<sui_sdk_types::types::BalanceChange> for BalanceChange {
     }
 }
 
-impl TryFrom<&BalanceChange> for sui_sdk_types::types::BalanceChange {
+impl TryFrom<&BalanceChange> for sui_sdk_types::BalanceChange {
     type Error = TryFromProtoError;
 
     fn try_from(value: &BalanceChange) -> Result<Self, Self::Error> {
@@ -135,6 +152,42 @@ impl TryFrom<&GetNodeInfoResponse> for crate::types::NodeInfo {
 // GetObjectOptions
 //
 
+impl GetObjectOptions {
+    pub fn all() -> Self {
+        Self {
+            object: Some(true),
+            object_bcs: Some(true),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self {
+            object: Some(false),
+            object_bcs: Some(false),
+        }
+    }
+
+    pub fn with_object(mut self) -> Self {
+        self.object = Some(true);
+        self
+    }
+
+    pub fn without_object(mut self) -> Self {
+        self.object = Some(false);
+        self
+    }
+
+    pub fn with_object_bcs(mut self) -> Self {
+        self.object_bcs = Some(true);
+        self
+    }
+
+    pub fn without_object_bcs(mut self) -> Self {
+        self.object = Some(false);
+        self
+    }
+}
+
 impl From<crate::types::GetObjectOptions> for GetObjectOptions {
     fn from(
         crate::types::GetObjectOptions { object, object_bcs }: crate::types::GetObjectOptions,
@@ -146,6 +199,30 @@ impl From<crate::types::GetObjectOptions> for GetObjectOptions {
 impl From<GetObjectOptions> for crate::types::GetObjectOptions {
     fn from(GetObjectOptions { object, object_bcs }: GetObjectOptions) -> Self {
         Self { object, object_bcs }
+    }
+}
+
+//
+// GetObjectRequest
+//
+
+impl GetObjectRequest {
+    pub fn new<T: Into<super::types::ObjectId>>(object_id: T) -> Self {
+        Self {
+            object_id: Some(object_id.into()),
+            version: None,
+            options: None,
+        }
+    }
+
+    pub fn with_version(mut self, version: u64) -> Self {
+        self.version = Some(version);
+        self
+    }
+
+    pub fn with_options(mut self, options: GetObjectOptions) -> Self {
+        self.options = Some(options);
+        self
     }
 }
 
@@ -213,6 +290,78 @@ impl TryFrom<&GetObjectResponse> for crate::types::ObjectResponse {
 // GetCheckpointOptions
 //
 
+impl GetCheckpointOptions {
+    pub fn all() -> Self {
+        Self {
+            summary: Some(true),
+            summary_bcs: Some(true),
+            signature: Some(true),
+            contents: Some(true),
+            contents_bcs: Some(true),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self {
+            summary: Some(false),
+            summary_bcs: Some(false),
+            signature: Some(false),
+            contents: Some(false),
+            contents_bcs: Some(false),
+        }
+    }
+
+    pub fn with_summary(mut self) -> Self {
+        self.summary = Some(true);
+        self
+    }
+
+    pub fn without_summary(mut self) -> Self {
+        self.summary = Some(false);
+        self
+    }
+
+    pub fn with_summary_bcs(mut self) -> Self {
+        self.summary_bcs = Some(true);
+        self
+    }
+
+    pub fn without_summary_bcs(mut self) -> Self {
+        self.summary_bcs = Some(false);
+        self
+    }
+
+    pub fn with_signature(mut self) -> Self {
+        self.signature = Some(true);
+        self
+    }
+
+    pub fn without_signature(mut self) -> Self {
+        self.signature = Some(false);
+        self
+    }
+
+    pub fn with_contents(mut self) -> Self {
+        self.contents = Some(true);
+        self
+    }
+
+    pub fn without_contents(mut self) -> Self {
+        self.contents = Some(false);
+        self
+    }
+
+    pub fn with_contents_bcs(mut self) -> Self {
+        self.contents_bcs = Some(true);
+        self
+    }
+
+    pub fn without_contents_bcs(mut self) -> Self {
+        self.contents_bcs = Some(false);
+        self
+    }
+}
+
 impl From<crate::types::GetCheckpointOptions> for GetCheckpointOptions {
     fn from(
         crate::types::GetCheckpointOptions {
@@ -254,8 +403,151 @@ impl From<GetCheckpointOptions> for crate::types::GetCheckpointOptions {
 }
 
 //
+// GetCheckpointRequest
+//
+
+impl GetCheckpointRequest {
+    pub fn latest() -> Self {
+        Self {
+            sequence_number: None,
+            digest: None,
+            options: None,
+        }
+    }
+
+    pub fn by_digest<T: Into<super::types::Digest>>(digest: T) -> Self {
+        Self {
+            sequence_number: None,
+            digest: Some(digest.into()),
+            options: None,
+        }
+    }
+
+    pub fn by_sequence_number(sequence_number: u64) -> Self {
+        Self {
+            sequence_number: Some(sequence_number),
+            digest: None,
+            options: None,
+        }
+    }
+
+    pub fn with_options(mut self, options: GetCheckpointOptions) -> Self {
+        self.options = Some(options);
+        self
+    }
+}
+
+//
 // GetTransactionOptions
 //
+
+impl GetTransactionOptions {
+    pub fn all() -> Self {
+        Self {
+            transaction: Some(true),
+            transaction_bcs: Some(true),
+            signatures: Some(true),
+            signatures_bytes: Some(true),
+            effects: Some(true),
+            effects_bcs: Some(true),
+            events: Some(true),
+            events_bcs: Some(true),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self {
+            transaction: Some(false),
+            transaction_bcs: Some(false),
+            signatures: Some(false),
+            signatures_bytes: Some(false),
+            effects: Some(false),
+            effects_bcs: Some(false),
+            events: Some(false),
+            events_bcs: Some(false),
+        }
+    }
+
+    pub fn with_transaction(mut self) -> Self {
+        self.transaction = Some(true);
+        self
+    }
+
+    pub fn without_transaction(mut self) -> Self {
+        self.transaction = Some(false);
+        self
+    }
+
+    pub fn with_transaction_bcs(mut self) -> Self {
+        self.transaction_bcs = Some(true);
+        self
+    }
+
+    pub fn without_transaction_bcs(mut self) -> Self {
+        self.transaction_bcs = Some(false);
+        self
+    }
+
+    pub fn with_signatures(mut self) -> Self {
+        self.signatures = Some(true);
+        self
+    }
+
+    pub fn without_signatures(mut self) -> Self {
+        self.signatures = Some(false);
+        self
+    }
+
+    pub fn with_signatures_bytes(mut self) -> Self {
+        self.signatures_bytes = Some(true);
+        self
+    }
+
+    pub fn without_signatures_bytes(mut self) -> Self {
+        self.signatures_bytes = Some(false);
+        self
+    }
+
+    pub fn with_effects(mut self) -> Self {
+        self.effects = Some(true);
+        self
+    }
+
+    pub fn without_effects(mut self) -> Self {
+        self.effects = Some(false);
+        self
+    }
+
+    pub fn with_effects_bcs(mut self) -> Self {
+        self.effects_bcs = Some(true);
+        self
+    }
+
+    pub fn without_effects_bcs(mut self) -> Self {
+        self.effects_bcs = Some(false);
+        self
+    }
+
+    pub fn with_events(mut self) -> Self {
+        self.events = Some(true);
+        self
+    }
+
+    pub fn without_events(mut self) -> Self {
+        self.events = Some(false);
+        self
+    }
+
+    pub fn with_events_bcs(mut self) -> Self {
+        self.events_bcs = Some(true);
+        self
+    }
+
+    pub fn without_events_bcs(mut self) -> Self {
+        self.events_bcs = Some(false);
+        self
+    }
+}
 
 impl From<crate::types::GetTransactionOptions> for GetTransactionOptions {
     fn from(
@@ -263,6 +555,7 @@ impl From<crate::types::GetTransactionOptions> for GetTransactionOptions {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -273,6 +566,7 @@ impl From<crate::types::GetTransactionOptions> for GetTransactionOptions {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -287,6 +581,7 @@ impl From<GetTransactionOptions> for crate::types::GetTransactionOptions {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -297,11 +592,30 @@ impl From<GetTransactionOptions> for crate::types::GetTransactionOptions {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
             events_bcs,
         }
+    }
+}
+
+//
+// GetTransactionRequest
+//
+
+impl GetTransactionRequest {
+    pub fn new<T: Into<super::types::Digest>>(digest: T) -> Self {
+        Self {
+            digest: Some(digest.into()),
+            options: None,
+        }
+    }
+
+    pub fn with_options(mut self, options: GetTransactionOptions) -> Self {
+        self.options = Some(options);
+        self
     }
 }
 
@@ -352,6 +666,198 @@ impl From<ExecuteTransactionOptions> for crate::types::ExecuteTransactionOptions
 //
 // GetFullCheckpointOptions
 //
+
+impl GetFullCheckpointOptions {
+    pub fn all() -> Self {
+        Self {
+            summary: Some(true),
+            summary_bcs: Some(true),
+            signature: Some(true),
+            contents: Some(true),
+            contents_bcs: Some(true),
+            transaction: Some(true),
+            transaction_bcs: Some(true),
+            effects: Some(true),
+            effects_bcs: Some(true),
+            events: Some(true),
+            events_bcs: Some(true),
+            input_objects: Some(true),
+            output_objects: Some(true),
+            object: Some(true),
+            object_bcs: Some(true),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self {
+            summary: Some(false),
+            summary_bcs: Some(false),
+            signature: Some(false),
+            contents: Some(false),
+            contents_bcs: Some(false),
+            transaction: Some(false),
+            transaction_bcs: Some(false),
+            effects: Some(false),
+            effects_bcs: Some(false),
+            events: Some(false),
+            events_bcs: Some(false),
+            input_objects: Some(false),
+            output_objects: Some(false),
+            object: Some(false),
+            object_bcs: Some(false),
+        }
+    }
+
+    pub fn with_summary(mut self) -> Self {
+        self.summary = Some(true);
+        self
+    }
+
+    pub fn without_summary(mut self) -> Self {
+        self.summary = Some(false);
+        self
+    }
+
+    pub fn with_summary_bcs(mut self) -> Self {
+        self.summary_bcs = Some(true);
+        self
+    }
+
+    pub fn without_summary_bcs(mut self) -> Self {
+        self.summary_bcs = Some(false);
+        self
+    }
+
+    pub fn with_signature(mut self) -> Self {
+        self.signature = Some(true);
+        self
+    }
+
+    pub fn without_signature(mut self) -> Self {
+        self.signature = Some(false);
+        self
+    }
+
+    pub fn with_contents(mut self) -> Self {
+        self.contents = Some(true);
+        self
+    }
+
+    pub fn without_contents(mut self) -> Self {
+        self.contents = Some(false);
+        self
+    }
+
+    pub fn with_contents_bcs(mut self) -> Self {
+        self.contents_bcs = Some(true);
+        self
+    }
+
+    pub fn without_contents_bcs(mut self) -> Self {
+        self.contents_bcs = Some(false);
+        self
+    }
+
+    pub fn with_transaction(mut self) -> Self {
+        self.transaction = Some(true);
+        self
+    }
+
+    pub fn without_transaction(mut self) -> Self {
+        self.transaction = Some(false);
+        self
+    }
+
+    pub fn with_transaction_bcs(mut self) -> Self {
+        self.transaction_bcs = Some(true);
+        self
+    }
+
+    pub fn without_transaction_bcs(mut self) -> Self {
+        self.transaction_bcs = Some(false);
+        self
+    }
+
+    pub fn with_effects(mut self) -> Self {
+        self.effects = Some(true);
+        self
+    }
+
+    pub fn without_effects(mut self) -> Self {
+        self.effects = Some(false);
+        self
+    }
+
+    pub fn with_effects_bcs(mut self) -> Self {
+        self.effects_bcs = Some(true);
+        self
+    }
+
+    pub fn without_effects_bcs(mut self) -> Self {
+        self.effects_bcs = Some(false);
+        self
+    }
+
+    pub fn with_events(mut self) -> Self {
+        self.events = Some(true);
+        self
+    }
+
+    pub fn without_events(mut self) -> Self {
+        self.events = Some(false);
+        self
+    }
+
+    pub fn with_events_bcs(mut self) -> Self {
+        self.events_bcs = Some(true);
+        self
+    }
+
+    pub fn without_events_bcs(mut self) -> Self {
+        self.events_bcs = Some(false);
+        self
+    }
+
+    pub fn with_input_objects(mut self) -> Self {
+        self.input_objects = Some(true);
+        self
+    }
+
+    pub fn without_input_objects(mut self) -> Self {
+        self.input_objects = Some(false);
+        self
+    }
+
+    pub fn with_output_objects(mut self) -> Self {
+        self.output_objects = Some(true);
+        self
+    }
+
+    pub fn without_output_objects(mut self) -> Self {
+        self.output_objects = Some(false);
+        self
+    }
+
+    pub fn with_object(mut self) -> Self {
+        self.object = Some(true);
+        self
+    }
+
+    pub fn without_object(mut self) -> Self {
+        self.object = Some(false);
+        self
+    }
+
+    pub fn with_object_bcs(mut self) -> Self {
+        self.object_bcs = Some(true);
+        self
+    }
+
+    pub fn without_object_bcs(mut self) -> Self {
+        self.object = Some(false);
+        self
+    }
+}
 
 impl From<crate::types::GetFullCheckpointOptions> for GetFullCheckpointOptions {
     fn from(
@@ -434,6 +940,41 @@ impl From<GetFullCheckpointOptions> for crate::types::GetFullCheckpointOptions {
 }
 
 //
+// GetFullCheckpointRequest
+//
+
+impl GetFullCheckpointRequest {
+    pub fn latest() -> Self {
+        Self {
+            sequence_number: None,
+            digest: None,
+            options: None,
+        }
+    }
+
+    pub fn by_digest<T: Into<super::types::Digest>>(digest: T) -> Self {
+        Self {
+            sequence_number: None,
+            digest: Some(digest.into()),
+            options: None,
+        }
+    }
+
+    pub fn by_sequence_number(sequence_number: u64) -> Self {
+        Self {
+            sequence_number: Some(sequence_number),
+            digest: None,
+            options: None,
+        }
+    }
+
+    pub fn with_options(mut self, options: GetFullCheckpointOptions) -> Self {
+        self.options = Some(options);
+        self
+    }
+}
+
+//
 // TransactionResponse
 //
 
@@ -444,6 +985,7 @@ impl From<crate::types::TransactionResponse> for GetTransactionResponse {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -456,11 +998,16 @@ impl From<crate::types::TransactionResponse> for GetTransactionResponse {
             signatures: signatures.into_iter().map(Into::into).collect(),
         });
 
+        let signatures_bytes = signatures_bytes.map(|signatures| UserSignaturesBytes {
+            signatures: signatures.into_iter().map(Into::into).collect(),
+        });
+
         Self {
             digest: Some(digest.into()),
             transaction: transaction.map(Into::into),
             transaction_bcs: transaction_bcs.map(Into::into),
             signatures,
+            signatures_bytes,
             effects: effects.map(Into::into),
             effects_bcs: effects_bcs.map(Into::into),
             events: events.map(Into::into),
@@ -480,6 +1027,7 @@ impl TryFrom<&GetTransactionResponse> for crate::types::TransactionResponse {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -507,6 +1055,14 @@ impl TryFrom<&GetTransactionResponse> for crate::types::TransactionResponse {
             })
             .transpose()?;
 
+        let signatures_bytes = signatures_bytes.as_ref().map(|signatures| {
+            signatures
+                .signatures
+                .iter()
+                .map(|bytes| bytes.to_vec())
+                .collect()
+        });
+
         let effects = effects.as_ref().map(TryInto::try_into).transpose()?;
         let effects_bcs = effects_bcs.as_ref().map(Into::into);
 
@@ -520,6 +1076,7 @@ impl TryFrom<&GetTransactionResponse> for crate::types::TransactionResponse {
             transaction,
             transaction_bcs,
             signatures,
+            signatures_bytes,
             effects,
             effects_bcs,
             events,
@@ -962,5 +1519,400 @@ impl TryFrom<&crate::proto::node::EffectsFinality> for crate::types::EffectsFina
             Finality::QuorumExecuted(()) => Self::QuorumExecuted,
         }
         .pipe(Ok)
+    }
+}
+
+// NOTE: This is a temporary instantiation of the Node service using the old `Node` name to ensure
+// compatibility for clients for a single release since the service was renamed to `NodeService`.
+// To be removed in 1.41
+/// Generated server implementations.
+pub mod node_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value
+    )]
+    use super::node_service_server::NodeService as Node;
+    use tonic::codegen::*;
+    #[derive(Debug)]
+    pub struct NodeServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> NodeServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for NodeServer<T>
+    where
+        T: Node,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/sui.node.v2.Node/GetNodeInfo" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetNodeInfoSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<()> for GetNodeInfoSvc<T> {
+                        type Response = super::GetNodeInfoResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(&mut self, request: tonic::Request<()>) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Node>::get_node_info(
+                                    &inner,
+                                    request.map(|_| super::GetNodeInfoRequest {}),
+                                )
+                                .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetNodeInfoSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/GetCommittee" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCommitteeSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::GetCommitteeRequest> for GetCommitteeSvc<T> {
+                        type Response = super::GetCommitteeResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetCommitteeRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Node>::get_committee(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCommitteeSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/GetObject" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetObjectSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::GetObjectRequest> for GetObjectSvc<T> {
+                        type Response = super::GetObjectResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetObjectRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { <T as Node>::get_object(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetObjectSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/GetTransaction" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetTransactionSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::GetTransactionRequest> for GetTransactionSvc<T> {
+                        type Response = super::GetTransactionResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetTransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Node>::get_transaction(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetTransactionSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/GetCheckpoint" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetCheckpointSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::GetCheckpointRequest> for GetCheckpointSvc<T> {
+                        type Response = super::GetCheckpointResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetCheckpointRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Node>::get_checkpoint(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetCheckpointSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/GetFullCheckpoint" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetFullCheckpointSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::GetFullCheckpointRequest>
+                        for GetFullCheckpointSvc<T>
+                    {
+                        type Response = super::GetFullCheckpointResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetFullCheckpointRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Node>::get_full_checkpoint(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetFullCheckpointSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sui.node.v2.Node/ExecuteTransaction" => {
+                    #[allow(non_camel_case_types)]
+                    struct ExecuteTransactionSvc<T: Node>(pub Arc<T>);
+                    impl<T: Node> tonic::server::UnaryService<super::ExecuteTransactionRequest>
+                        for ExecuteTransactionSvc<T>
+                    {
+                        type Response = super::ExecuteTransactionResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ExecuteTransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Node>::execute_transaction(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ExecuteTransactionSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    let mut response = http::Response::new(empty_body());
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        tonic::Status::GRPC_STATUS,
+                        (tonic::Code::Unimplemented as i32).into(),
+                    );
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        tonic::metadata::GRPC_CONTENT_TYPE,
+                    );
+                    Ok(response)
+                }),
+            }
+        }
+    }
+    impl<T> Clone for NodeServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "sui.node.v2.Node";
+    impl<T> tonic::server::NamedService for NodeServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
     }
 }

@@ -462,12 +462,23 @@ impl RpcStateReader for RestReadStore {
         }
     }
 
-    fn get_chain_identifier(
+    fn get_chain_identifier(&self) -> Result<sui_types::digests::ChainIdentifier> {
+        Ok(self.state.get_chain_identifier())
+    }
+
+    fn indexes(&self) -> Option<&dyn RpcIndexes> {
+        self.index().ok().map(|index| index as _)
+    }
+}
+
+impl RpcIndexes for RpcIndexStore {
+    fn get_transaction_checkpoint(
         &self,
-    ) -> sui_types::storage::error::Result<sui_types::digests::ChainIdentifier> {
-        self.state
-            .get_chain_identifier()
-            .ok_or_else(|| StorageError::missing("unable to query chain identifier"))
+        digest: &TransactionDigest,
+    ) -> sui_types::storage::error::Result<Option<CheckpointSequenceNumber>> {
+        self.get_transaction_info(digest)
+            .map(|maybe_info| maybe_info.map(|info| info.checkpoint))
+            .map_err(StorageError::custom)
     }
 
     fn indexes(&self) -> Option<&dyn RpcIndexes> {
