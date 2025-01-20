@@ -135,7 +135,14 @@ pub fn hash_type_and_key(
     let Some(k_bytes) = k.simple_serialize(&k_layout) else {
         return Ok(NativeResult::err(cost, E_BCS_SERIALIZATION_FAILURE));
     };
-    tracing::warn!(?k, ?k_layout, ?k_tag, ?k_bytes, "🧀hash_type_and_key");
+    tracing::warn!(
+        ?parent,
+        ?k,
+        ?k_layout,
+        ?k_tag,
+        ?k_bytes,
+        "🧀hash_type_and_key"
+    );
     let Ok(id) = derive_dynamic_field_id(parent, &k_tag, &k_bytes) else {
         return Ok(NativeResult::err(cost, E_BCS_SERIALIZATION_FAILURE));
     };
