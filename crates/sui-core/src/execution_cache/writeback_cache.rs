@@ -501,7 +501,7 @@ macro_rules! check_cache_entry_by_latest {
 }
 
 impl WritebackCache {
-    fn new_with_store(
+    pub fn new_with_store(
         config: &ExecutionCacheConfig,
         store: Option<Arc<AuthorityStore>>,
         metrics: Arc<ExecutionCacheMetrics>,
