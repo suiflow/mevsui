@@ -87,7 +87,6 @@ use super::cache_types::Ticket;
 use super::ExecutionCacheAPI;
 use super::{
     cache_types::{CachedVersionMap, IsNewer, MonotonicCache},
-    implement_passthrough_traits,
     object_locks::ObjectLocks,
     CheckpointCache, ExecutionCacheCommit, ExecutionCacheMetrics, ExecutionCacheReconfigAPI,
     ExecutionCacheWrite, ObjectCacheRead, StateSyncAPI, TestingAPI, TransactionCacheRead,
@@ -455,15 +454,12 @@ pub struct WritebackCache {
     //   we do not need to worry about the contiguous version property.
     // - note that we removed any unfinalized packages from the cache during revert_state_update().
     packages: MokaCache<ObjectID, PackageObject>,
-
     object_locks: ObjectLocks,
-
     executed_effects_digests_notify_read: NotifyRead<TransactionDigest, TransactionEffectsDigest>,
-    pub store: Arc<AuthorityStore>,
+    pub store: Option<Arc<AuthorityStore>>,
     backpressure_threshold: u64,
     backpressure_manager: Arc<BackpressureManager>,
     metrics: Arc<ExecutionCacheMetrics>,
-
     enable_record_pool_ids: bool,
 }
 
@@ -505,9 +501,9 @@ macro_rules! check_cache_entry_by_latest {
 }
 
 impl WritebackCache {
-    pub fn new(
+    fn new_with_store(
         config: &ExecutionCacheConfig,
-        store: Arc<AuthorityStore>,
+        store: Option<Arc<AuthorityStore>>,
         metrics: Arc<ExecutionCacheMetrics>,
         backpressure_manager: Arc<BackpressureManager>,
     ) -> Self {
@@ -531,6 +527,23 @@ impl WritebackCache {
         }
     }
 
+    pub fn new(
+        config: &ExecutionCacheConfig,
+        store: Arc<AuthorityStore>,
+        metrics: Arc<ExecutionCacheMetrics>,
+        backpressure_manager: Arc<BackpressureManager>,
+    ) -> Self {
+        Self::new_with_store(config, Some(store), metrics, backpressure_manager)
+    }
+
+    pub fn new_without_store(
+        config: &ExecutionCacheConfig,
+        metrics: Arc<ExecutionCacheMetrics>,
+        backpressure_manager: Arc<BackpressureManager>,
+    ) -> Self {
+        Self::new_with_store(config, None, metrics, backpressure_manager)
+    }
+
     pub fn new_for_tests(store: Arc<AuthorityStore>, registry: &Registry) -> Self {
         Self::new(
             &Default::default(),
@@ -544,7 +557,7 @@ impl WritebackCache {
     pub fn reset_for_test(&mut self) {
         let mut new = Self::new(
             &Default::default(),
-            self.store.clone(),
+            self.store.clone().expect("store should exist in tests"),
             self.metrics.clone(),
             self.backpressure_manager.clone(),
         );
@@ -708,13 +721,12 @@ impl WritebackCache {
                     .objects
                     .get(object_id)
                     .and_then(|entry| entry.get_highest().map(|(_, o)| o.clone()))
-                    .or_else(|| {
-                        let obj: Option<ObjectEntry> = self
-                            .store
+                    .or_else(|| match &self.store {
+                        Some(store) => store
                             .get_latest_object_or_tombstone(*object_id)
                             .unwrap()
-                            .map(|(_, o)| o.into());
-                        obj
+                            .map(|(_, o)| o.into()),
+                        None => None,
                     });
 
                 let cache_entry = match &*entry.lock() {
@@ -865,7 +877,12 @@ impl WritebackCache {
             CacheResult::Hit((_, object)) => Some(object),
             CacheResult::NegativeHit => None,
             CacheResult::Miss => {
-                let obj = self.store.get_object(id);
+                if self.store.is_none() {
+                    // When store is None, treat cache miss as negative hit
+                    self.cache_object_not_found(id, ticket);
+                    return None;
+                }
+                let obj = self.store.as_ref().unwrap().get_object(id);
                 if let Some(obj) = &obj {
                     self.cache_latest_object_by_id(
                         id,
@@ -882,13 +899,17 @@ impl WritebackCache {
 
     fn record_db_get(&self, request_type: &'static str) -> &AuthorityStore {
         self.metrics.record_cache_request(request_type, "db");
-        &self.store
+        self.store
+            .as_ref()
+            .expect("store is required for this operation")
     }
 
     fn record_db_multi_get(&self, request_type: &'static str, count: usize) -> &AuthorityStore {
         self.metrics
             .record_cache_multi_request(request_type, "db", count);
-        &self.store
+        self.store
+            .as_ref()
+            .expect("store is required for this operation")
     }
 
     async fn update_package_cache(&self, package_updates: &[(ObjectID, Object)]) -> SuiResult {
@@ -1042,10 +1063,12 @@ impl WritebackCache {
         // Flush writes to disk before removing anything from dirty set. otherwise,
         // a cache eviction could cause a value to disappear briefly, even if we insert to the
         // cache before removing from the dirty set.
-        self.store
-            .write_transaction_outputs(epoch, &all_outputs)
-            .await
-            .expect("db error");
+        if let Some(store) = &self.store {
+            store
+                .write_transaction_outputs(epoch, &all_outputs)
+                .await
+                .expect("db error");
+        }
 
         for outputs in all_outputs.iter() {
             let tx_digest = outputs.transaction.digest();
@@ -1228,11 +1251,9 @@ impl WritebackCache {
                 .map(|o| o.transaction.clone())
             else {
                 // tx should exist in the db if it is not in dirty set.
-                debug_assert!(self
-                    .store
-                    .get_transaction_block(tx_digest)
-                    .unwrap()
-                    .is_some());
+                if let Some(store) = &self.store {
+                    debug_assert!(store.get_transaction_block(tx_digest).unwrap().is_some());
+                }
                 // If the transaction is not in dirty, it does not need to be committed.
                 // This situation can happen if we build a checkpoint locally which was just executed
                 // via state sync.
@@ -1242,7 +1263,9 @@ impl WritebackCache {
             txns.push((*tx_digest, (*tx).clone()));
         }
 
-        self.store.commit_transactions(&txns).expect("db error");
+        if let Some(store) = &self.store {
+            store.commit_transactions(&txns).expect("db error");
+        }
     }
 
     // Move the oldest/least entry from the dirty queue to the cache queue.
@@ -1355,9 +1378,11 @@ impl WritebackCache {
     }
 
     fn bulk_insert_genesis_objects_impl(&self, objects: &[Object]) {
-        self.store
-            .bulk_insert_genesis_objects(objects)
-            .expect("db error");
+        if let Some(store) = &self.store {
+            store
+                .bulk_insert_genesis_objects(objects)
+                .expect("db error");
+        }
         for obj in objects {
             self.cached.object_cache.invalidate(&obj.id());
             self.cached.object_by_id_cache.invalidate(&obj.id());
@@ -1367,7 +1392,9 @@ impl WritebackCache {
     fn insert_genesis_object_impl(&self, object: Object) {
         self.cached.object_by_id_cache.invalidate(&object.id());
         self.cached.object_cache.invalidate(&object.id());
-        self.store.insert_genesis_object(object).expect("db error");
+        if let Some(store) = &self.store {
+            store.insert_genesis_object(object).expect("db error");
+        }
     }
 
     pub fn clear_caches_and_assert_empty(&self) {
@@ -1438,13 +1465,15 @@ impl ObjectCacheRead for WritebackCache {
             .record_cache_request("package", "package_cache");
         if let Some(p) = self.packages.get(package_id) {
             if cfg!(debug_assertions) {
-                if let Some(store_package) = self.store.get_object(package_id) {
-                    assert_eq!(
-                        store_package.digest(),
-                        p.object().digest(),
-                        "Package object cache is inconsistent for package {:?}",
-                        package_id
-                    );
+                if let Some(store) = &self.store {
+                    if let Some(store_package) = store.get_object(package_id) {
+                        assert_eq!(
+                            store_package.digest(),
+                            p.object().digest(),
+                            "Package object cache is inconsistent for package {:?}",
+                            package_id
+                        );
+                    }
                 }
             }
             self.metrics.record_cache_hit("package", "package_cache");
@@ -1494,9 +1523,13 @@ impl ObjectCacheRead for WritebackCache {
         match self.get_object_by_key_cache_only(object_id, version) {
             CacheResult::Hit(object) => Some(object),
             CacheResult::NegativeHit => None,
-            CacheResult::Miss => self
-                .record_db_get("object_by_version")
-                .get_object_by_key(object_id, version),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return None;
+                }
+                self.record_db_get("object_by_version")
+                    .get_object_by_key(object_id, version)
+            }
         }
     }
 
@@ -1509,6 +1542,9 @@ impl ObjectCacheRead for WritebackCache {
                 CacheResult::Miss => CacheResult::Miss,
             },
             |remaining| {
+                if self.store.is_none() {
+                    return vec![None; remaining.len()];
+                }
                 self.record_db_multi_get("object_by_version", remaining.len())
                     .multi_get_objects_by_key(remaining)
                     .expect("db error")
@@ -1520,10 +1556,14 @@ impl ObjectCacheRead for WritebackCache {
         match self.get_object_by_key_cache_only(object_id, version) {
             CacheResult::Hit(_) => true,
             CacheResult::NegativeHit => false,
-            CacheResult::Miss => self
-                .record_db_get("object_by_version")
-                .object_exists_by_key(object_id, version)
-                .expect("db error"),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return false;
+                }
+                self.record_db_get("object_by_version")
+                    .object_exists_by_key(object_id, version)
+                    .expect("db error")
+            }
         }
     }
 
@@ -1536,6 +1576,9 @@ impl ObjectCacheRead for WritebackCache {
                 CacheResult::Miss => CacheResult::Miss,
             },
             |remaining| {
+                if self.store.is_none() {
+                    return vec![false; remaining.len()];
+                }
                 self.record_db_multi_get("object_by_version", remaining.len())
                     .multi_object_exists_by_key(remaining)
                     .expect("db error")
@@ -1551,10 +1594,14 @@ impl ObjectCacheRead for WritebackCache {
                 ObjectEntry::Wrapped => (object_id, version, ObjectDigest::OBJECT_DIGEST_WRAPPED),
             }),
             CacheResult::NegativeHit => None,
-            CacheResult::Miss => self
-                .record_db_get("latest_objref_or_tombstone")
-                .get_latest_object_ref_or_tombstone(object_id)
-                .expect("db error"),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return None;
+                }
+                self.record_db_get("latest_objref_or_tombstone")
+                    .get_latest_object_ref_or_tombstone(object_id)
+                    .expect("db error")
+            }
         }
     }
 
@@ -1586,10 +1633,12 @@ impl ObjectCacheRead for WritebackCache {
                 })
             }
             CacheResult::NegativeHit => None,
-            CacheResult::Miss => self
-                .record_db_get("latest_object_or_tombstone")
-                .get_latest_object_or_tombstone(object_id)
-                .expect("db error"),
+            CacheResult::Miss => match &self.store {
+                Some(store) => store
+                    .get_latest_object_or_tombstone(object_id)
+                    .expect("db error"),
+                None => None,
+            },
         }
     }
 
@@ -1699,6 +1748,9 @@ impl ObjectCacheRead for WritebackCache {
                             .tap_none(|| panic!("dirty set cannot be empty"))
                     } else {
                         // TODO: we should try not to read from the db while holding the locks.
+                        if self.store.is_none() {
+                            return None;
+                        }
                         self.record_db_get("object_lt_or_eq_version_latest")
                             .get_latest_object_or_tombstone(object_id)
                             .expect("db error")
@@ -1734,6 +1786,9 @@ impl ObjectCacheRead for WritebackCache {
                         // The latest object exceeded the bound, so now we have to do a scan
                         // But we already know there is no dirty entry within the bound,
                         // so we go to the db.
+                        if self.store.is_none() {
+                            return None;
+                        }
                         self.record_db_get("object_lt_or_eq_version_scan")
                             .find_object_lt_or_eq_version(object_id, version_bound)
                             .expect("db error")
@@ -1776,10 +1831,14 @@ impl ObjectCacheRead for WritebackCache {
         match self.get_marker_value_cache_only(object_id, version, epoch_id) {
             CacheResult::Hit(marker) => Some(marker),
             CacheResult::NegativeHit => None,
-            CacheResult::Miss => self
-                .record_db_get("marker_by_version")
-                .get_marker_value(object_id, &version, epoch_id)
-                .expect("db error"),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return None;
+                }
+                self.record_db_get("marker_by_version")
+                    .get_marker_value(object_id, &version, epoch_id)
+                    .expect("db error")
+            }
         }
     }
 
@@ -1793,10 +1852,14 @@ impl ObjectCacheRead for WritebackCache {
             CacheResult::NegativeHit => {
                 panic!("cannot have negative hit when getting latest marker")
             }
-            CacheResult::Miss => self
-                .record_db_get("marker_latest")
-                .get_latest_marker(object_id, epoch_id)
-                .expect("db error"),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return None;
+                }
+                self.record_db_get("marker_latest")
+                    .get_latest_marker(object_id, epoch_id)
+                    .expect("db error")
+            }
         }
     }
 
@@ -1835,7 +1898,15 @@ impl ObjectCacheRead for WritebackCache {
                     version: None,
                 }))
             }
-            CacheResult::Miss => self.record_db_get("lock").get_lock(obj_ref, epoch_store),
+            CacheResult::Miss => {
+                if self.store.is_none() {
+                    return Err(SuiError::from(UserInputError::ObjectNotFound {
+                        object_id: obj_ref.0,
+                        version: None,
+                    }));
+                }
+                self.record_db_get("lock").get_lock(obj_ref, epoch_store)
+            }
         }
     }
 
@@ -1872,6 +1943,12 @@ impl ObjectCacheRead for WritebackCache {
                 CacheResult::Miss => Ok(CacheResult::Miss),
             },
             |remaining| {
+                if self.store.is_none() {
+                    return Err(SuiError::from(UserInputError::ObjectNotFound {
+                        object_id: remaining[0].0,
+                        version: None,
+                    }));
+                }
                 self.record_db_multi_get("object_is_live", remaining.len())
                     .check_owned_objects_are_live(remaining)?;
                 Ok(vec![(); remaining.len()])
@@ -1881,10 +1958,13 @@ impl ObjectCacheRead for WritebackCache {
     }
 
     fn get_highest_pruned_checkpoint(&self) -> CheckpointSequenceNumber {
-        self.store
-            .perpetual_tables
-            .get_highest_pruned_checkpoint()
-            .expect("db error")
+        match &self.store {
+            Some(store) => store
+                .perpetual_tables
+                .get_highest_pruned_checkpoint()
+                .expect("db error"),
+            None => 0, // When store is None, return 0 as the default value
+        }
     }
 }
 
@@ -1934,6 +2014,9 @@ impl TransactionCacheRead for WritebackCache {
             },
             |remaining| {
                 let remaining_digests: Vec<_> = remaining.iter().map(|(d, _)| *d).collect();
+                if self.store.is_none() {
+                    return vec![None; remaining.len()];
+                }
                 let results: Vec<_> = self
                     .record_db_multi_get("transaction_block", remaining.len())
                     .multi_get_transaction_blocks(&remaining_digests)
@@ -2002,6 +2085,9 @@ impl TransactionCacheRead for WritebackCache {
             },
             |remaining| {
                 let remaining_digests: Vec<_> = remaining.iter().map(|(d, _)| *d).collect();
+                if self.store.is_none() {
+                    return vec![None; remaining.len()];
+                }
                 let results = self
                     .record_db_multi_get("executed_effects_digests", remaining.len())
                     .multi_get_executed_effects_digests(&remaining_digests)
@@ -2063,6 +2149,9 @@ impl TransactionCacheRead for WritebackCache {
             },
             |remaining| {
                 let remaining_digests: Vec<_> = remaining.iter().map(|(d, _)| *d).collect();
+                if self.store.is_none() {
+                    return vec![None; remaining.len()];
+                }
                 let results = self
                     .record_db_multi_get("transaction_effects", remaining.len())
                     .multi_get_effects(remaining_digests.iter())
@@ -2149,19 +2238,22 @@ impl TransactionCacheRead for WritebackCache {
             },
             |remaining| {
                 let remaining_digests: Vec<_> = remaining.iter().map(|(d, _)| *d).collect();
-                let results = self
-                    .store
-                    .multi_get_events(&remaining_digests)
-                    .expect("db error");
-                for ((digest, ticket), result) in remaining.iter().zip(results.iter()) {
-                    if result.is_none() {
-                        self.cached
-                            .transaction_events
-                            .insert(digest, None, *ticket)
-                            .ok();
+                if let Some(store) = &self.store {
+                    let results = store
+                        .multi_get_events(&remaining_digests)
+                        .expect("db error");
+                    for ((digest, ticket), result) in remaining.iter().zip(results.iter()) {
+                        if result.is_none() {
+                            self.cached
+                                .transaction_events
+                                .insert(digest, None, *ticket)
+                                .ok();
+                        }
                     }
+                    results
+                } else {
+                    vec![None; remaining.len()]
                 }
-                results
             },
         )
     }
@@ -2169,12 +2261,14 @@ impl TransactionCacheRead for WritebackCache {
 
 impl ExecutionCacheWrite for WritebackCache {
     fn update_underlying(&self, clear_cache: bool) {
-        self.store
-            .perpetual_tables
-            .objects
-            .rocksdb
-            .try_catch_up_with_primary()
-            .unwrap();
+        if let Some(store) = &self.store {
+            store
+                .perpetual_tables
+                .objects
+                .rocksdb
+                .try_catch_up_with_primary()
+                .unwrap();
+        }
 
         if clear_cache {
             self.clear();
@@ -2274,8 +2368,6 @@ fn do_fallback_lookup_fallible<K: Copy, V: Default + Clone>(
     Ok(results)
 }
 
-implement_passthrough_traits!(WritebackCache);
-
 impl AccumulatorStore for WritebackCache {
     fn get_object_ref_prior_to_key_deprecated(
         &self,
@@ -2317,11 +2409,10 @@ impl AccumulatorStore for WritebackCache {
             }
         }
 
-        if let Some(prior) = self
-            .store
-            .get_object_ref_prior_to_key_deprecated(object_id, version)?
-        {
-            candidates.push(prior);
+        if let Some(store) = &self.store {
+            if let Some(prior) = store.get_object_ref_prior_to_key_deprecated(object_id, version)? {
+                candidates.push(prior);
+            }
         }
 
         // sort candidates by version, and return the highest
@@ -2333,13 +2424,21 @@ impl AccumulatorStore for WritebackCache {
         &self,
         epoch: EpochId,
     ) -> SuiResult<Option<(CheckpointSequenceNumber, Accumulator)>> {
-        self.store.get_root_state_accumulator_for_epoch(epoch)
+        if let Some(store) = &self.store {
+            store.get_root_state_accumulator_for_epoch(epoch)
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_root_state_accumulator_for_highest_epoch(
         &self,
     ) -> SuiResult<Option<(EpochId, (CheckpointSequenceNumber, Accumulator))>> {
-        self.store.get_root_state_accumulator_for_highest_epoch()
+        if let Some(store) = &self.store {
+            store.get_root_state_accumulator_for_highest_epoch()
+        } else {
+            Ok(None)
+        }
     }
 
     fn insert_state_accumulator_for_epoch(
@@ -2348,8 +2447,11 @@ impl AccumulatorStore for WritebackCache {
         checkpoint_seq_num: &CheckpointSequenceNumber,
         acc: &Accumulator,
     ) -> SuiResult {
-        self.store
-            .insert_state_accumulator_for_epoch(epoch, checkpoint_seq_num, acc)
+        if let Some(store) = &self.store {
+            store.insert_state_accumulator_for_epoch(epoch, checkpoint_seq_num, acc)
+        } else {
+            Ok(())
+        }
     }
 
     fn iter_live_object_set(
@@ -2363,7 +2465,11 @@ impl AccumulatorStore for WritebackCache {
             self.dirty.is_empty(),
             "cannot iterate live object set with dirty data"
         );
-        self.store.iter_live_object_set(include_wrapped_tombstone)
+        if let Some(store) = &self.store {
+            store.iter_live_object_set(include_wrapped_tombstone)
+        } else {
+            Box::new(std::iter::empty())
+        }
     }
 
     // A version of iter_live_object_set that reads the cache. Only use for testing. If used
@@ -2378,8 +2484,10 @@ impl AccumulatorStore for WritebackCache {
         let mut dirty_objects = BTreeMap::new();
 
         // add everything from the store
-        for obj in self.store.iter_live_object_set(include_wrapped_tombstone) {
-            dirty_objects.insert(obj.object_id(), obj);
+        if let Some(store) = &self.store {
+            for obj in store.iter_live_object_set(include_wrapped_tombstone) {
+                dirty_objects.insert(obj.object_id(), obj);
+            }
         }
 
         // add everything from the cache, but also remove deletions
@@ -2418,9 +2526,11 @@ impl StateSyncAPI for WritebackCache {
         transaction: &VerifiedTransaction,
         transaction_effects: &TransactionEffects,
     ) {
-        self.store
-            .insert_transaction_and_effects(transaction, transaction_effects)
-            .expect("db error");
+        if let Some(store) = &self.store {
+            store
+                .insert_transaction_and_effects(transaction, transaction_effects)
+                .expect("db error");
+        }
         self.cached
             .transactions
             .insert(
@@ -2443,9 +2553,11 @@ impl StateSyncAPI for WritebackCache {
         &self,
         transactions_and_effects: &[VerifiedExecutionData],
     ) {
-        self.store
-            .multi_insert_transaction_and_effects(transactions_and_effects.iter())
-            .expect("db error");
+        if let Some(store) = &self.store {
+            store
+                .multi_insert_transaction_and_effects(transactions_and_effects.iter())
+                .expect("db error");
+        }
         for VerifiedExecutionData {
             transaction,
             effects,
@@ -2468,5 +2580,116 @@ impl StateSyncAPI for WritebackCache {
                 )
                 .ok();
         }
+    }
+}
+
+impl CheckpointCache for WritebackCache {
+    fn deprecated_get_transaction_checkpoint(
+        &self,
+        digest: &TransactionDigest,
+    ) -> Option<(EpochId, CheckpointSequenceNumber)> {
+        match &self.store {
+            Some(store) => store
+                .deprecated_get_transaction_checkpoint(digest)
+                .expect("db error"),
+            None => None,
+        }
+    }
+
+    fn deprecated_multi_get_transaction_checkpoint(
+        &self,
+        digests: &[TransactionDigest],
+    ) -> Vec<Option<(EpochId, CheckpointSequenceNumber)>> {
+        match &self.store {
+            Some(store) => store
+                .deprecated_multi_get_transaction_checkpoint(digests)
+                .expect("db error"),
+            None => vec![None; digests.len()],
+        }
+    }
+
+    fn deprecated_insert_finalized_transactions(
+        &self,
+        digests: &[TransactionDigest],
+        epoch: EpochId,
+        sequence: CheckpointSequenceNumber,
+    ) {
+        if let Some(store) = &self.store {
+            store
+                .deprecated_insert_finalized_transactions(digests, epoch, sequence)
+                .expect("db error");
+        }
+    }
+}
+
+impl ExecutionCacheReconfigAPI for WritebackCache {
+    fn insert_genesis_object(&self, object: Object) {
+        self.insert_genesis_object_impl(object)
+    }
+
+    fn bulk_insert_genesis_objects(&self, objects: &[Object]) {
+        self.bulk_insert_genesis_objects_impl(objects)
+    }
+
+    fn revert_state_update(&self, digest: &TransactionDigest) {
+        self.revert_state_update_impl(digest)
+    }
+
+    fn set_epoch_start_configuration(&self, epoch_start_config: &EpochStartConfiguration) {
+        if let Some(store) = &self.store {
+            store
+                .set_epoch_start_configuration(epoch_start_config)
+                .expect("db error");
+        }
+    }
+
+    fn update_epoch_flags_metrics(&self, old: &[EpochFlag], new: &[EpochFlag]) {
+        if let Some(store) = &self.store {
+            store.update_epoch_flags_metrics(old, new)
+        }
+    }
+
+    fn clear_state_end_of_epoch(&self, execution_guard: &ExecutionLockWriteGuard<'_>) {
+        self.clear_state_end_of_epoch_impl(execution_guard)
+    }
+
+    fn expensive_check_sui_conservation(
+        &self,
+        old_epoch_store: &AuthorityPerEpochStore,
+    ) -> SuiResult {
+        match &self.store {
+            Some(store) => store.expensive_check_sui_conservation(self, old_epoch_store),
+            None => Ok(()),
+        }
+    }
+
+    fn checkpoint_db(&self, path: &std::path::Path) -> SuiResult {
+        match &self.store {
+            Some(store) => store.perpetual_tables.checkpoint_db(path),
+            None => Ok(()),
+        }
+    }
+
+    fn maybe_reaccumulate_state_hash(
+        &self,
+        cur_epoch_store: &AuthorityPerEpochStore,
+        new_protocol_version: ProtocolVersion,
+    ) {
+        if let Some(store) = &self.store {
+            store.maybe_reaccumulate_state_hash(cur_epoch_store, new_protocol_version)
+        }
+    }
+
+    fn reconfigure_cache<'a>(&'a self, _: &'a EpochStartConfiguration) -> BoxFuture<'a, ()> {
+        // Since we now use WritebackCache directly at startup (if the epoch flag is set),
+        // this can be called at reconfiguration time. It is a no-op.
+        // TODO: remove this once we completely remove ProxyCache.
+        std::future::ready(()).boxed()
+    }
+}
+
+impl TestingAPI for WritebackCache {
+    fn database_for_testing(&self) -> Arc<AuthorityStore> {
+        self.store.clone().expect("store should exist in tests")
     }
 }

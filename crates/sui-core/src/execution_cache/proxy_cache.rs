@@ -110,14 +110,14 @@ impl ProxyCache {
     }
 
     pub fn catch_up_with_primary(&self) {
-        self.writeback_cache
-            .store
-            .clone()
-            .perpetual_tables
-            .objects
-            .rocksdb
-            .try_catch_up_with_primary()
-            .unwrap();
+        if let Some(store) = &self.writeback_cache.store {
+            store
+                .perpetual_tables
+                .objects
+                .rocksdb
+                .try_catch_up_with_primary()
+                .unwrap();
+        }
     }
 
     pub fn clear_cached(&self) {
@@ -255,13 +255,14 @@ impl TransactionCacheRead for ProxyCache {
 impl ExecutionCacheWrite for ProxyCache {
     fn update_underlying(&self, clear_cache: bool) {
         // writeback and passthrough are using the same rocksdb instance
-        self.writeback_cache
-            .store
-            .perpetual_tables
-            .objects
-            .rocksdb
-            .try_catch_up_with_primary()
-            .unwrap();
+        if let Some(store) = &self.writeback_cache.store {
+            store
+                .perpetual_tables
+                .objects
+                .rocksdb
+                .try_catch_up_with_primary()
+                .unwrap();
+        }
 
         if clear_cache {
             self.writeback_cache.clear();
