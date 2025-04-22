@@ -88,7 +88,7 @@ mod base_types_tests;
     JsonSchema,
 )]
 #[cfg_attr(feature = "fuzzing", derive(proptest_derive::Arbitrary))]
-pub struct SequenceNumber(u64);
+pub struct SequenceNumber(pub u64);
 
 impl SequenceNumber {
     pub fn one_before(&self) -> Option<SequenceNumber> {
@@ -192,7 +192,7 @@ pub type ConsensusObjectSequenceKey = (ObjectID, SequenceNumber);
 /// The inner representation is private to prevent incorrectly constructing an `Other` instead of
 /// one of the specialized variants, e.g. `Other(GasCoin::type_())` instead of `GasCoin`
 #[derive(Eq, PartialEq, PartialOrd, Ord, Debug, Clone, Deserialize, Serialize, Hash)]
-pub struct MoveObjectType(MoveObjectType_);
+pub struct MoveObjectType(pub MoveObjectType_);
 
 /// Even though it is declared public, it is the "private", internal representation for
 /// `MoveObjectType`

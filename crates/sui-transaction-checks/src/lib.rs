@@ -252,6 +252,13 @@ mod checked {
                 && object.version() == *version
                 && object.digest() == *object_digest)
             {
+                if object.version() != *version {
+                    tracing::error!(
+                        "check receiving object {:?} {:?}",
+                        object.version(),
+                        *version
+                    );
+                }
                 // Version mismatch
                 fp_ensure!(
                     object.version() == *version,
@@ -551,6 +558,10 @@ mod checked {
                         start_version: actual_initial_shared_version,
                         ..
                     } => {
+                        if input_initial_shared_version != actual_initial_shared_version {
+                            tracing::error!("object {:?} initial_shared_version {:?} actual_initial_shared_version {:?}",
+                                object.id(), input_initial_shared_version, actual_initial_shared_version);
+                        }
                         fp_ensure!(
                             input_initial_shared_version == actual_initial_shared_version,
                             UserInputError::SharedObjectStartingVersionMismatch
